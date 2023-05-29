@@ -1,0 +1,11 @@
+[package]
+name = "migration"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sea-orm-migration = { version = "0.11.3", features = ["runtime-tokio-native-tls", "sqlx-postgres"] }
+tokio.workspace = true
+sea-orm.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
