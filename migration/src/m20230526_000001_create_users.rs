@@ -9,10 +9,7 @@ impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
             .create_type(
-                Type::create()
-                    .as_enum(Gender::Table)
-                    .values(Gender::iter().skip(1))
-                    .to_owned(),
+                Type::create().as_enum(Gender::Table).values(Gender::iter().skip(1)).to_owned(),
             )
             .await?;
 
@@ -20,12 +17,7 @@ impl MigrationTrait for Migration {
             .create_table(
                 Table::create()
                     .table(Users::Table)
-                    .col(
-                        ColumnDef::new(Users::Id)
-                            .big_integer()
-                            .not_null()
-                            .primary_key(),
-                    )
+                    .col(ColumnDef::new(Users::Id).big_integer().not_null().primary_key())
                     .col(ColumnDef::new(Users::Name).string().not_null())
                     .col(
                         ColumnDef::new(Users::Gender)
@@ -39,27 +31,15 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Users::About).string().not_null())
                     .col(ColumnDef::new(Users::Active).boolean().not_null())
                     .col(ColumnDef::new(Users::LastActivity).date_time().not_null())
-                    .col(
-                        ColumnDef::new(Users::GraduationYear)
-                            .small_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(Users::UpGraduationYearDeltaPref)
-                            .tiny_integer()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(Users::GraduationYear).small_integer().not_null())
+                    .col(ColumnDef::new(Users::UpGraduationYearDeltaPref).tiny_integer().not_null())
                     .col(
                         ColumnDef::new(Users::DownGraduationYearDeltaPref)
                             .tiny_integer()
                             .not_null(),
                     )
                     .col(ColumnDef::new(Users::Subjects).big_integer().not_null())
-                    .col(
-                        ColumnDef::new(Users::SubjectsPrefs)
-                            .big_integer()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(Users::SubjectsPrefs).big_integer().not_null())
                     .to_owned(),
             )
             .await?;
@@ -97,11 +77,7 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(
-                        ColumnDef::new(Datings::InitiatorId)
-                            .big_integer()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(Datings::InitiatorId).big_integer().not_null())
                     .foreign_key(
                         ForeignKey::create()
                             .from(Datings::Table, Datings::InitiatorId)
@@ -134,16 +110,10 @@ impl MigrationTrait for Migration {
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        manager
-            .drop_table(Table::drop().table(Images::Table).to_owned())
-            .await?;
+        manager.drop_table(Table::drop().table(Images::Table).to_owned()).await?;
 
-        manager
-            .drop_table(Table::drop().table(Users::Table).to_owned())
-            .await?;
-        manager
-            .drop_type(Type::drop().name(Gender::Table).to_owned())
-            .await?;
+        manager.drop_table(Table::drop().table(Users::Table).to_owned()).await?;
+        manager.drop_type(Type::drop().name(Gender::Table).to_owned()).await?;
 
         Ok(())
     }

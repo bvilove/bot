@@ -60,6 +60,28 @@
               export DATABASE_URL=postgresql:///olympdating?host=$PWD/postgres;
             '';
           };
+          norust = pkgs.mkShell {
+            buildInputs = with pkgs;
+              [
+                sqlx-cli
+                postgresql
+                openssl
+                pkg-config
+                sea-orm-cli
+              ]
+              ++ [
+                pgstart
+                pgstop
+              ];
+
+            shellHook = ''
+              export PGDATA=$PWD/postgres/data
+              export PGHOST=$PWD/postgres
+              export LOG_PATH=$PWD/postgres/LOG
+              export PGDATABASE=olympdating
+              export DATABASE_URL=postgresql:///olympdating?host=$PWD/postgres;
+            '';
+          };
         };
       }
     );

@@ -1,7 +1,10 @@
+use bitflags::bitflags;
+use entities::sea_orm_active_enums::Gender;
 use teloxide::{
     adaptors::{throttle::Limits, Throttle},
     dispatching::dialogue::InMemStorage,
     prelude::*,
+    types::{InlineKeyboardButton, InlineKeyboardMarkup},
     utils::command::BotCommands,
 };
 
@@ -16,14 +19,21 @@ async fn main() -> anyhow::Result<()> {
     let bot = teloxide::Bot::from_env()
         .throttle(Limits { messages_per_min_chat: 30, ..Default::default() });
 
-    let handler = Update::filter_message()
-        .enter_dialogue::<Message, InMemStorage<State>, State>()
-        .branch(dptree::case![State::CreateAnketa(a)].endpoint(edit_anketa))
-        .branch(dptree::case![State::EditName(a)].endpoint(edit_anketa))
-        .branch(dptree::case![State::EditSubject(a)].endpoint(edit_anketa))
-        .branch(dptree::case![State::EditDescription(a)].endpoint(edit_anketa))
-        .branch(dptree::entry().filter_command::<Command>().endpoint(answer))
-        .branch(dptree::endpoint(invalid_command));
+    let handler = dptree::entry()
+        .enter_dialogue::<Update, InMemStorage<State>, State>()
+        .branch(
+            Update::filter_message()
+                .branch(dptree::case![State::NewName(a)].endpoint(new_profile))
+                .branch(dptree::case![State::NewAbout(a)].endpoint(new_profile))
+                .branch(dptree::entry().filter_command::<Command>().endpoint(answer))
+                .branch(dptree::endpoint(invalid_command)),
+        )
+        .branch(
+            Update::filter_callback_query()
+                .branch(dptree::case![State::NewGender(a)].endpoint(new_profile_callback))
+                .branch(dptree::case![State::NewGrade(a)].endpoint(new_profile_callback))
+                .branch(dptree::case![State::NewSubject(a)].endpoint(new_profile_callback)),
+        );
 
     Dispatcher::builder(bot, handler)
         .dependencies(dptree::deps![InMemStorage::<State>::new()])
@@ -34,179 +44,214 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-struct Anketa {
-    name: String,
-    subject: String,
-    description: String,
+bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    struct Subjects: i64 {
+        const Art = 1 << 0;
+        const Astronomy = 1 << 1;
+        const Biology = 1 << 2;
+        const Chemistry = 1 << 3;
+        const Chinese = 1 << 4;
+        const Ecology = 1 << 5;
+        const Economics = 1 << 6;
+        const English = 1 << 7;
+        const French = 1 << 8;
+        const Geography = 1 << 9;
+        const German = 1 << 10;
+        const History = 1 << 11;
+        const Informatics = 1 << 12;
+        const Italian = 1 << 13;
+        const Law = 1 << 14;
+        const Literature = 1 << 15;
+        const Math = 1 << 16;
+        const Physics = 1 << 17;
+        const Russian = 1 << 18;
+        const Safety = 1 << 19;
+        const Social = 1 << 20;
+        const Spanish = 1 << 21;
+        const Sport = 1 << 22;
+        const Technology = 1 << 23;
+    }
 }
 
 #[derive(Clone, Default)]
-struct EditAnketa {
+struct NewProfile {
     name: Option<String>,
-    subject: Option<String>,
-    description: Option<String>,
+    gender: Option<Gender>,
+    grade: Option<u8>,
+    subjects: Option<Subjects>,
+    about: Option<String>,
 }
 
 #[derive(Clone, Default)]
 enum State {
     #[default]
     Start,
-    CreateAnketa(EditAnketa),
-    EditName(EditAnketa),
-    EditSubject(EditAnketa),
-    EditDescription(EditAnketa),
+    // NewProfile:
+    NewName(NewProfile),
+    NewGender(NewProfile),
+    NewGrade(NewProfile),
+    NewSubject(NewProfile),
+    NewAbout(NewProfile),
+    // EditProfile:
+    // TODO
 }
 
-#[derive(Debug, BotCommands, Clone)]
-#[command(rename_rule = "lowercase", description = "Доступные команды:")]
-enum Command {
-    #[command(description = "новая анкета (создать с нуля, э, но не совсем, \
-                             типа если там 0 нажать, то прошлый вариант \
-                             сохраниться, так что э кринж)")]
-    CreateAnketa,
-    #[command(description = "изменить анкету")]
-    EditAnketa,
-    #[command(description = "включить анкету")]
-    EnableAnketa,
-    #[command(description = "выключить анкета")]
-    DisableAnketa,
-    Help,
-}
-
-// #[tracing::instrument(skip(db, bot))]
-async fn answer(
+async fn new_profile_callback(
     bot: Bot,
     dialogue: MyDialogue,
-    msg: Message,
-    cmd: Command,
+    mut profile: NewProfile,
+    state: State,
+    q: CallbackQuery,
 ) -> anyhow::Result<()> {
-    match cmd {
-        Command::CreateAnketa => {
-            dialogue.update(State::CreateAnketa(EditAnketa::default())).await?;
-            bot.send_message(msg.chat.id, EDIT_NAME_TEXT).await?;
-        }
-        Command::EditAnketa => {
-            if get_anketa(msg.chat.id.0).await?.is_some() {
-                dialogue.update(State::EditName(EditAnketa::default())).await?;
-                bot.send_message(msg.chat.id, EDIT_NAME_TEXT).await?;
-            } else {
-                bot.send_message(msg.chat.id, "Сначала создайте анкету")
-                    .await?;
+    match state {
+        State::NewGender(_) => {
+            if let Some(t) = q.data {
+                if t == Gender::Male.to_string() {
+                    profile.gender = Some(Gender::Male);
+                } else if t == Gender::Female.to_string() {
+                    profile.gender = Some(Gender::Female);
+                } else {
+                    return Ok(());
+                }
+                bot.answer_callback_query(q.id).await?;
+
+                if let Some(Message { id, chat, .. }) = q.message {
+                    bot.send_message(chat.id, text::EDIT_GRADE).await?; // TODO: add keyboard
+                } else {
+                    tracing::error!("what");
+                }
+                dialogue.update(State::NewGrade(profile)).await?;
             }
         }
-        Command::EnableAnketa | Command::DisableAnketa => {
-            todo!();
-        }
-        Command::Help => {
-            bot.send_message(msg.chat.id, Command::descriptions().to_string())
-                .await?;
-        }
+        State::NewGrade(_) => {}
+        _ => {}
     }
-
     Ok(())
 }
 
-const EDIT_NAME_TEXT: &str = "Напиши имя от 3 до 20 символов (0 для пропуска).";
-
-async fn edit_anketa(
+async fn new_profile(
     bot: Bot,
     dialogue: MyDialogue,
-    mut anketa: EditAnketa,
+    mut profile: NewProfile,
     state: State,
     msg: Message,
 ) -> anyhow::Result<()> {
-    const EDIT_SUBJECT_TEXT: &str = "Напиши предметы бота (0 для пропуска).";
-    const EDIT_DESCRIPTION_TEXT: &str =
-        "Напиши описание до 100 символов (0 для пропуска).";
-
-    macro_rules! test {
+    macro_rules! make_handler {
         (
             $text:ident,
-            $cur_text:expr,
-            $next:expr,
+            $retry_text:expr,
             $validate:expr,
             $action:expr,
-            $next_text:expr
+            $next_text:expr,
+            $next_state:expr
         ) => {
             match msg.text() {
-                Some("0") => {
-                    bot.send_message(msg.chat.id, $next_text).await?;
-                    dialogue.update($next).await?;
-                }
                 Some($text) if $validate => {
                     $action;
                     bot.send_message(msg.chat.id, $next_text).await?;
-                    dialogue.update($next).await?;
+                    dialogue.update($next_state).await?;
                 }
                 _ => {
-                    bot.send_message(msg.chat.id, $cur_text).await?;
+                    bot.send_message(msg.chat.id, $retry_text).await?;
                 }
             }
         };
         (
-            disable_skip
             $text:ident,
-            $cur_text:expr,
-            $next:expr,
+            $retry_text:expr,
             $validate:expr,
             $action:expr,
-            $next_text:expr
+            $next_text:expr,
+            $keyboard:expr,
+            $next_state:expr
         ) => {
             match msg.text() {
                 Some($text) if $validate => {
                     $action;
-                    bot.send_message(msg.chat.id, $next_text).await?;
-                    dialogue.update($next).await?;
+                    bot.send_message(msg.chat.id, $next_text).reply_markup($keyboard).await?;
+                    dialogue.update($next_state).await?;
                 }
                 _ => {
-                    bot.send_message(msg.chat.id, $cur_text).await?;
+                    bot.send_message(msg.chat.id, $retry_text).await?;
                 }
             }
         };
     }
 
     match state {
-        State::CreateAnketa(_) => test!(
-            disable_skip
-            text,
-            EDIT_NAME_TEXT,
-            State::EditSubject(anketa),
-            (3..=30).contains(&text.len()),
-            anketa.name = Some(text.to_owned()),
-            EDIT_SUBJECT_TEXT
-        ),
-        State::EditName(_) => test!(
-            text,
-            EDIT_NAME_TEXT,
-            State::EditSubject(anketa),
-            (3..=30).contains(&text.len()),
-            anketa.name = Some(text.to_owned()),
-            EDIT_SUBJECT_TEXT
-        ),
-        State::EditSubject(_) => test!(
-            text,
-            EDIT_SUBJECT_TEXT,
-            State::EditDescription(anketa),
-            (1..=100).contains(&text.len()),
-            anketa.subject = Some(text.to_owned()),
-            EDIT_DESCRIPTION_TEXT
-        ),
-        State::EditDescription(_) => test!(
-            text,
-            EDIT_DESCRIPTION_TEXT,
-            State::Start,
-            (1..=100).contains(&text.len()),
+        State::NewName(_) => make_handler!(
+            t,
+            text::EDIT_NAME,
+            (3..=30).contains(&t.len()),
+            profile.name = Some(t.to_owned()),
+            text::EDIT_GENDER,
             {
-                anketa.description = Some(text.to_owned());
-                save_anketa_to_db(&anketa).await?;
+                let keyboard: Vec<Vec<InlineKeyboardButton>> = vec![
+                    vec![InlineKeyboardButton::callback("Мужской", Gender::Male.to_string())],
+                    vec![InlineKeyboardButton::callback("Женский", Gender::Female.to_string())],
+                ];
+                InlineKeyboardMarkup::new(keyboard)
             },
-            format!(
-                "Ваша анкета:\nИмя:{:?}\nПредмет:{:?}\nОписание:{:?}",
-                anketa.name, anketa.subject, anketa.description
-            )
+            State::NewGender(profile)
+        ),
+        State::NewAbout(_) => make_handler!(
+            t,
+            text::EDIT_ABOUT,
+            (1..=100).contains(&t.len()),
+            profile.about = Some(t.to_owned()),
+            "тут должна выводиться анкета (подтвердить да/нет)",
+            State::Start
         ),
         _ => {}
     }
+
+    Ok(())
+}
+
+#[derive(Debug, BotCommands, Clone)]
+#[command(rename_rule = "lowercase", description = "Доступные команды:")]
+enum Command {
+    #[command(description = "новая анкета")]
+    NewProfile,
+    #[command(description = "изменить анкету")]
+    EditProfile,
+    // #[command(description = "включить анкету")]
+    // EnableAnketa,
+    // #[command(description = "выключить анкета")]
+    // DisableAnketa,
+    Help,
+}
+
+mod text {
+    pub const EDIT_NAME: &str = "Напиши имя от 3 до 20 символов (0 для пропуска).";
+    pub const EDIT_GENDER: &str = "edit gender";
+    pub const EDIT_GRADE: &str = "edit grade TODO";
+    pub const EDIT_SUBJECT: &str = "Напиши предметы бота (0 для пропуска).";
+    pub const EDIT_ABOUT: &str = "Напиши описание до 100 символов (0 для пропуска).";
+}
+
+// #[tracing::instrument(skip(db, bot))]
+async fn answer(bot: Bot, dialogue: MyDialogue, msg: Message, cmd: Command) -> anyhow::Result<()> {
+    match cmd {
+        Command::NewProfile => {
+            dialogue.update(State::NewName(NewProfile::default())).await?;
+            bot.send_message(msg.chat.id, text::EDIT_NAME).await?;
+        }
+        Command::EditProfile => {
+            // if get_anketa(msg.chat.id.0).await?.is_some() {
+            //     dialogue.update(State::NewName(NewProfile::default())).await?
+            // ;     bot.send_message(msg.chat.id,
+            // EDIT_NAME_TEXT).await?; } else {
+            //     bot.send_message(msg.chat.id, "Сначала создайте анкету")
+            //         .await?;
+            // }
+        }
+        Command::Help => {
+            bot.send_message(msg.chat.id, Command::descriptions().to_string()).await?;
+        }
+    }
+
     Ok(())
 }
 
@@ -215,14 +260,6 @@ async fn invalid_command(bot: Bot, msg: Message) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn save_anketa_to_db(_anketa: &EditAnketa) -> anyhow::Result<()> {
+async fn save_anketa_to_db(_anketa: &NewProfile) -> anyhow::Result<()> {
     Ok(())
-}
-
-async fn get_anketa(_id: i64) -> anyhow::Result<Option<Anketa>> {
-    Ok(Some(Anketa {
-        name: "br".to_owned(),
-        subject: "what".to_owned(),
-        description: "j".to_owned(),
-    }))
 }
