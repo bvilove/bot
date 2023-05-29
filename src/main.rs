@@ -25,14 +25,27 @@ async fn main() -> anyhow::Result<()> {
             Update::filter_message()
                 .branch(dptree::case![State::NewName(a)].endpoint(new_profile))
                 .branch(dptree::case![State::NewAbout(a)].endpoint(new_profile))
-                .branch(dptree::entry().filter_command::<Command>().endpoint(answer))
+                .branch(
+                    dptree::entry()
+                        .filter_command::<Command>()
+                        .endpoint(answer),
+                )
                 .branch(dptree::endpoint(invalid_command)),
         )
         .branch(
             Update::filter_callback_query()
-                .branch(dptree::case![State::NewGender(a)].endpoint(new_profile_callback))
-                .branch(dptree::case![State::NewGrade(a)].endpoint(new_profile_callback))
-                .branch(dptree::case![State::NewSubject(a)].endpoint(new_profile_callback)),
+                .branch(
+                    dptree::case![State::NewGender(a)]
+                        .endpoint(new_profile_callback),
+                )
+                .branch(
+                    dptree::case![State::NewGrade(a)]
+                        .endpoint(new_profile_callback),
+                )
+                .branch(
+                    dptree::case![State::NewSubject(a)]
+                        .endpoint(new_profile_callback),
+                ),
         );
 
     Dispatcher::builder(bot, handler)
@@ -117,7 +130,8 @@ async fn new_profile_callback(
                 bot.answer_callback_query(q.id).await?;
 
                 if let Some(Message { id, chat, .. }) = q.message {
-                    bot.send_message(chat.id, text::EDIT_GRADE).await?; // TODO: add keyboard
+                    bot.send_message(chat.id, text::EDIT_GRADE).await?;
+                    // TODO: add keyboard
                 } else {
                     tracing::error!("what");
                 }
@@ -169,7 +183,9 @@ async fn new_profile(
             match msg.text() {
                 Some($text) if $validate => {
                     $action;
-                    bot.send_message(msg.chat.id, $next_text).reply_markup($keyboard).await?;
+                    bot.send_message(msg.chat.id, $next_text)
+                        .reply_markup($keyboard)
+                        .await?;
                     dialogue.update($next_state).await?;
                 }
                 _ => {
@@ -188,8 +204,14 @@ async fn new_profile(
             text::EDIT_GENDER,
             {
                 let keyboard: Vec<Vec<InlineKeyboardButton>> = vec![
-                    vec![InlineKeyboardButton::callback("Мужской", Gender::Male.to_string())],
-                    vec![InlineKeyboardButton::callback("Женский", Gender::Female.to_string())],
+                    vec![InlineKeyboardButton::callback(
+                        "Мужской",
+                        Gender::Male.to_string(),
+                    )],
+                    vec![InlineKeyboardButton::callback(
+                        "Женский",
+                        Gender::Female.to_string(),
+                    )],
                 ];
                 InlineKeyboardMarkup::new(keyboard)
             },
@@ -224,15 +246,22 @@ enum Command {
 }
 
 mod text {
-    pub const EDIT_NAME: &str = "Напиши имя от 3 до 20 символов (0 для пропуска).";
+    pub const EDIT_NAME: &str =
+        "Напиши имя от 3 до 20 символов (0 для пропуска).";
     pub const EDIT_GENDER: &str = "edit gender";
     pub const EDIT_GRADE: &str = "edit grade TODO";
     pub const EDIT_SUBJECT: &str = "Напиши предметы бота (0 для пропуска).";
-    pub const EDIT_ABOUT: &str = "Напиши описание до 100 символов (0 для пропуска).";
+    pub const EDIT_ABOUT: &str =
+        "Напиши описание до 100 символов (0 для пропуска).";
 }
 
 // #[tracing::instrument(skip(db, bot))]
-async fn answer(bot: Bot, dialogue: MyDialogue, msg: Message, cmd: Command) -> anyhow::Result<()> {
+async fn answer(
+    bot: Bot,
+    dialogue: MyDialogue,
+    msg: Message,
+    cmd: Command,
+) -> anyhow::Result<()> {
     match cmd {
         Command::NewProfile => {
             dialogue.update(State::NewName(NewProfile::default())).await?;
@@ -248,7 +277,8 @@ async fn answer(bot: Bot, dialogue: MyDialogue, msg: Message, cmd: Command) -> a
             // }
         }
         Command::Help => {
-            bot.send_message(msg.chat.id, Command::descriptions().to_string()).await?;
+            bot.send_message(msg.chat.id, Command::descriptions().to_string())
+                .await?;
         }
     }
 
