@@ -1,3 +1,4 @@
+use anyhow::Context;
 use bitflags::bitflags;
 use entities::sea_orm_active_enums::Gender;
 use teloxide::{
@@ -94,6 +95,29 @@ struct NewProfile {
     grade: Option<u8>,
     subjects: Option<Subjects>,
     about: Option<String>,
+}
+
+struct Profile {
+    name: String,
+    gender: Gender,
+    grade: u8,
+    subjects: Subjects,
+    about: String,
+}
+
+impl Profile {
+    fn try_new(new: NewProfile) -> Option<Self> {
+        match new {
+            NewProfile {
+                name: Some(name),
+                gender: Some(gender),
+                grade: Some(grade),
+                subjects: Some(subjects),
+                about: Some(about),
+            } => Some(Self { name, gender, grade, subjects, about }),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -221,7 +245,14 @@ async fn new_profile(
             t,
             text::EDIT_ABOUT,
             (1..=100).contains(&t.len()),
-            profile.about = Some(t.to_owned()),
+            {
+                profile.about = Some(t.to_owned());
+                save_profile_to_db(
+                    &Profile::try_new(profile)
+                        .context("NewProfile isn't initialized")?,
+                )
+                .await?;
+            },
             "тут должна выводиться анкета (подтвердить да/нет)",
             State::Start
         ),
@@ -290,6 +321,6 @@ async fn invalid_command(bot: Bot, msg: Message) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn save_anketa_to_db(_anketa: &NewProfile) -> anyhow::Result<()> {
+async fn save_profile_to_db(_profile: &Profile) -> anyhow::Result<()> {
     Ok(())
 }
