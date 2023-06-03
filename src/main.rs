@@ -1,19 +1,27 @@
-use std::fmt::Display;
+use std::sync::Arc;
 
-use anyhow::Context;
+use anyhow::{anyhow, bail, Context, Result};
 use bitflags::bitflags;
+use chrono::Datelike;
+use db::Database;
 use entities::sea_orm_active_enums::Gender;
 use itertools::Itertools;
 use teloxide::{
     adaptors::{throttle::Limits, Throttle},
     dispatching::dialogue::InMemStorage,
     prelude::*,
-    types::{InlineKeyboardButton, InlineKeyboardMarkup},
+    types::{
+        Chat, ChatKind, InlineKeyboardButton, InlineKeyboardMarkup,
+        KeyboardButton, KeyboardMarkup, KeyboardRemove,
+    },
     utils::command::BotCommands,
 };
 
+mod db;
+
 type Bot = Throttle<teloxide::Bot>;
-type MyDialogue = Dialogue<State, InMemStorage<State>>;
+type ProfileCreationDialogue =
+    Dialogue<ProfileCreationState, InMemStorage<ProfileCreationState>>;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -24,11 +32,14 @@ async fn main() -> anyhow::Result<()> {
         .throttle(Limits { messages_per_min_chat: 30, ..Default::default() });
 
     let handler = dptree::entry()
-        .enter_dialogue::<Update, InMemStorage<State>, State>()
+        .enter_dialogue::<Update, InMemStorage<ProfileCreationState>, ProfileCreationState>()
         .branch(
             Update::filter_message()
-                .branch(dptree::case![State::NewName(a)].endpoint(new_profile))
-                .branch(dptree::case![State::NewAbout(a)].endpoint(new_profile))
+                .branch(dptree::case![ProfileCreationState::SetName(a)].endpoint(handle_set_name))
+                .branch(dptree::case![ProfileCreationState::SetGender(a)].endpoint(handle_set_gender))
+                .branch(dptree::case![ProfileCreationState::SetPartnerGender(a)].endpoint(handle_set_partner_gender))
+                .branch(dptree::case![ProfileCreationState::SetGraduationYear(a)].endpoint(handle_set_graduation_year))
+                .branch(dptree::case![ProfileCreationState::SetAbout(a)].endpoint(handle_set_about))
                 .branch(
                     dptree::entry()
                         .filter_command::<Command>()
@@ -39,25 +50,22 @@ async fn main() -> anyhow::Result<()> {
         .branch(
             Update::filter_callback_query()
                 .branch(
-                    dptree::case![State::NewGender(a)]
-                        .endpoint(new_profile_callback),
+                    dptree::case![ProfileCreationState::SetSubjects(a)]
+                        .endpoint(handle_set_subjects_callback),
                 )
                 .branch(
-                    dptree::case![State::NewGrade(a)]
-                        .endpoint(new_profile_callback),
+                    dptree::case![ProfileCreationState::SetPartnerSubjects(a)]
+                        .endpoint(handle_set_partner_subjects_callback),
                 )
-                .branch(
-                    dptree::case![State::NewSubjects(a)]
-                        .endpoint(new_profile_callback),
-                )
-                .branch(
-                    dptree::case![State::NewTargetGender(a)]
-                        .endpoint(new_profile_callback),
-                ),
         );
 
+    let database = db::Database::new().await?;
+
     Dispatcher::builder(bot, handler)
-        .dependencies(dptree::deps![InMemStorage::<State>::new()])
+        .dependencies(dptree::deps![
+            InMemStorage::<ProfileCreationState>::new(),
+            Arc::new(database)
+        ])
         .enable_ctrlc_handler()
         .build()
         .dispatch()
@@ -99,8 +107,9 @@ bitflags! {
 struct NewProfile {
     name: Option<String>,
     gender: Option<Gender>,
-    grade: Option<u8>,
+    graduation_year: Option<i16>,
     subjects: Option<Subjects>,
+    partner_subjects: Option<Subjects>,
     about: Option<String>,
     target_gender: Option<Gender>,
 }
@@ -109,270 +118,432 @@ struct NewProfile {
 struct Profile {
     name: String,
     gender: Gender,
-    grade: u8,
+    graduation_year: i16,
     subjects: Subjects,
+    partner_subjects: Subjects,
     about: String,
-    target_gender: Gender,
+    partner_gender: Option<Gender>,
 }
 
-impl Profile {
-    fn try_new(new: NewProfile) -> Option<Self> {
+impl TryFrom<NewProfile> for Profile {
+    type Error = anyhow::Error;
+
+    fn try_from(new: NewProfile) -> Result<Self, Self::Error> {
         match new {
             NewProfile {
                 name: Some(name),
                 gender: Some(gender),
-                grade: Some(grade),
+                graduation_year: Some(grade),
                 subjects: Some(subjects),
+                partner_subjects: Some(partner_subjects),
                 about: Some(about),
-                target_gender: Some(target_gender),
-            } => Some(Self {
+                target_gender,
+            } => Ok(Profile {
                 name,
                 gender,
-                grade,
+                graduation_year: grade,
                 subjects,
+                partner_subjects,
                 about,
-                target_gender,
+                partner_gender: target_gender,
             }),
-            _ => None,
+            _ => Err(anyhow!("can't create Profile from NewProfile")),
         }
     }
 }
 
 #[derive(Clone, Default)]
-enum State {
+enum ProfileCreationState {
     #[default]
     Start,
-    // NewProfile:
-    NewName(NewProfile),
-    NewGender(NewProfile),
-    NewGrade(NewProfile),
-    NewSubjects(NewProfile),
-    NewAbout(NewProfile),
-    NewTargetGender(NewProfile),
-    // EditProfile:
-    // TODO
+    SetName(NewProfile),
+    SetGender(NewProfile),
+    SetPartnerGender(NewProfile),
+    SetGraduationYear(NewProfile),
+    SetSubjects(NewProfile),
+    SetPartnerSubjects(NewProfile),
+    SetAbout(NewProfile),
 }
 
-async fn new_profile_callback(
-    bot: Bot,
-    dialogue: MyDialogue,
-    mut profile: NewProfile,
-    state: State,
-    q: CallbackQuery,
-) -> anyhow::Result<()> {
-    let Some(t) = q.data else { return Ok(()); };
-    const GRADES: [&str; 4] = ["8", "9", "10", "11"];
-    const SUBJECTS_CONTINUE: &str = "Продолжить";
-
-    fn parse_gender(t: &str) -> anyhow::Result<Gender> {
-        if t == Gender::Male.to_string() {
-            Ok(Gender::Male)
-        } else if t == Gender::Female.to_string() {
-            Ok(Gender::Female)
-        } else {
-            anyhow::bail!("gender error: {t}");
-        }
-    }
-
-    macro_rules! remove_buttons {
-        () => {
-            if let Some(Message { id, chat, .. }) = q.message {
-                bot.edit_message_reply_markup(chat.id, id).await?;
-            }
-        };
-    }
-
-    fn make_subjects_keyboard(selected: Subjects) -> InlineKeyboardMarkup {
-        let mut keyboard: Vec<Vec<InlineKeyboardButton>> = Subjects::all()
-            .iter_names()
-            .chunks(3)
-            .into_iter()
-            .map(|row| {
-                row.map(|(name, val)| {
-                    InlineKeyboardButton::callback(
-                        if selected.contains(val) {
-                            format!("✅ {}", name)
-                        } else {
-                            name.to_owned()
-                        },
-                        val.bits().to_string(),
-                    )
-                })
-                .collect()
-            })
-            .collect();
-        keyboard.push(vec![InlineKeyboardButton::callback(
-            SUBJECTS_CONTINUE,
-            SUBJECTS_CONTINUE,
-        )]);
-        InlineKeyboardMarkup::new(keyboard)
-    }
-
-    match state {
-        State::NewGender(_) => {
-            profile.gender = Some(parse_gender(&t)?);
-            // bot.answer_callback_query(q.id).await?;
-
-            bot.send_message(dialogue.chat_id(), text::EDIT_GRADE)
-                .reply_markup({
-                    let keyboard: Vec<Vec<InlineKeyboardButton>> = GRADES
-                        .into_iter()
-                        .map(|g| vec![InlineKeyboardButton::callback(g, g)])
-                        .collect();
-                    InlineKeyboardMarkup::new(keyboard)
-                })
-                .await?;
-            remove_buttons!();
-            dialogue.update(State::NewGrade(profile)).await?;
-        }
-        State::NewGrade(_) => {
-            if !GRADES.contains(&t.as_str()) {
-                anyhow::bail!("grade error: {t}");
-            }
-            profile.grade = Some(t.parse()?);
-            bot.send_message(dialogue.chat_id(), text::EDIT_SUBJECT)
-                .reply_markup(make_subjects_keyboard(Subjects::default()))
-                .await?;
-            remove_buttons!();
-            dialogue.update(State::NewSubjects(profile)).await?;
-        }
-        State::NewSubjects(_) => {
-            if t == SUBJECTS_CONTINUE {
-                bot.send_message(dialogue.chat_id(), text::EDIT_ABOUT).await?;
-                remove_buttons!();
-                dialogue.update(State::NewAbout(profile)).await?;
-            } else {
-                let subjects = profile.subjects.unwrap_or_default()
-                    ^ Subjects::from_bits(t.parse()?)
-                        .context("subjects error")?;
-                dialogue
-                    .update(State::NewSubjects(NewProfile {
-                        subjects: Some(subjects),
-                        ..profile
-                    }))
+async fn request_set_name(bot: Bot, chat: Chat) -> Result<()> {
+    match chat.kind {
+        ChatKind::Public(_) => Err(anyhow!("chat isn't private")),
+        ChatKind::Private(p) => match p.first_name {
+            Some(n) => {
+                let keyboard = vec![vec![KeyboardButton::new(n)]];
+                let keyboard_markup =
+                    KeyboardMarkup::new(keyboard).resize_keyboard(true);
+                bot.send_message(chat.id, text::EDIT_NAME)
+                    .reply_markup(keyboard_markup)
                     .await?;
-                if let Some(Message { id, chat, .. }) = q.message {
-                    bot.edit_message_reply_markup(chat.id, id)
-                        .reply_markup(make_subjects_keyboard(subjects))
-                        .await?;
-                }
+                Ok(())
             }
+            None => {
+                bot.send_message(chat.id, text::EDIT_NAME).await?;
+                Ok(())
+            }
+        },
+    }
+}
+
+async fn handle_set_name(
+    bot: Bot,
+    dialogue: ProfileCreationDialogue,
+    msg: Message,
+    mut profile: NewProfile,
+) -> Result<()> {
+    match msg.text() {
+        Some(text) if (3..=30).contains(&text.len()) => {
+            profile.name = Some(text.to_owned());
+            dialogue.update(ProfileCreationState::SetGender(profile)).await?;
+
+            request_set_gender(bot, msg.chat).await?;
         }
-        State::NewTargetGender(_) => {
-            profile.target_gender = Some(parse_gender(&t)?);
-            let p = Profile::try_new(profile)
-                .context("NewProfile isn't initialized")?;
-            bot.send_message(
-                dialogue.chat_id(),
-                format!("(TODO: подтвердить да/нет)\n{:?}", p),
-            )
-            .await?;
-            save_profile_to_db(&p).await?; // TODO: print on error
-            remove_buttons!();
-            dialogue.exit().await?;
+        _ => {
+            request_set_name(bot, msg.chat).await?;
         }
-        _ => {}
     }
     Ok(())
 }
 
-async fn new_profile(
+async fn request_set_gender(bot: Bot, chat: Chat) -> Result<()> {
+    let keyboard = vec![vec![
+        KeyboardButton::new("Мужской"),
+        KeyboardButton::new("Женский"),
+    ]];
+    let keyboard_markup = KeyboardMarkup::new(keyboard).resize_keyboard(true);
+
+    bot.send_message(chat.id, text::EDIT_GENDER)
+        .reply_markup(keyboard_markup)
+        .await?;
+    Ok(())
+}
+
+async fn handle_set_gender(
     bot: Bot,
-    dialogue: MyDialogue,
-    mut profile: NewProfile,
-    state: State,
+    dialogue: ProfileCreationDialogue,
     msg: Message,
+    mut profile: NewProfile,
+) -> Result<()> {
+    let Some(text) = msg.text() else {bail!("no text in message")};
+    let gender = match text {
+        "Мужской" => Gender::Male,
+        "Женский" => Gender::Female,
+        &_ => {
+            request_set_gender(bot, msg.chat).await?;
+            return Ok(());
+        }
+    };
+
+    profile.gender = Some(gender);
+    dialogue.update(ProfileCreationState::SetPartnerGender(profile)).await?;
+
+    request_set_partner_gender(bot, msg.chat).await?;
+
+    Ok(())
+}
+
+async fn request_set_partner_gender(bot: Bot, chat: Chat) -> Result<()> {
+    let keyboard = vec![
+        vec![KeyboardButton::new("Парень"), KeyboardButton::new("Девушка")],
+        vec![KeyboardButton::new("Не важно")],
+    ];
+    let keyboard_markup = KeyboardMarkup::new(keyboard).resize_keyboard(true);
+
+    bot.send_message(chat.id, text::EDIT_PARTNER_GENDER)
+        .reply_markup(keyboard_markup)
+        .await?;
+    Ok(())
+}
+
+async fn handle_set_partner_gender(
+    bot: Bot,
+    dialogue: ProfileCreationDialogue,
+    msg: Message,
+    mut profile: NewProfile,
+) -> Result<()> {
+    let Some(text) = msg.text() else {bail!("no text in message")};
+    let gender = match text {
+        "Парень" => Some(Gender::Male),
+        "Девушка" => Some(Gender::Female),
+        "Не важно" => None,
+        &_ => {
+            request_set_partner_gender(bot, msg.chat).await?;
+            return Ok(());
+        }
+    };
+
+    profile.target_gender = gender;
+    dialogue.update(ProfileCreationState::SetGraduationYear(profile)).await?;
+
+    request_set_graduation_year(bot, msg.chat).await?;
+
+    Ok(())
+}
+
+async fn request_set_graduation_year(bot: Bot, chat: Chat) -> Result<()> {
+    let keyboard =
+        (6..=11).map(|n| KeyboardButton::new(n.to_string())).chunks(3);
+    let keyboard_markup =
+        KeyboardMarkup::new(keyboard.into_iter()).resize_keyboard(true);
+
+    bot.send_message(chat.id, text::REQUEST_GRADE)
+        .reply_markup(keyboard_markup)
+        .await?;
+    Ok(())
+}
+
+async fn handle_set_graduation_year(
+    bot: Bot,
+    dialogue: ProfileCreationDialogue,
+    msg: Message,
+    mut profile: NewProfile,
+) -> Result<()> {
+    let Some(text) = msg.text() else {bail!("no text in message")};
+    let Ok(grade) = text.parse::<i32>() else {request_set_graduation_year(bot, msg.chat).await?; return Ok(())};
+
+    let date = chrono::Local::now();
+
+    let graduation_year = if date.month() < 9 {
+        date.year() + (11 - grade)
+    } else {
+        date.year() + (11 - grade) + 1
+    };
+
+    profile.graduation_year = Some(graduation_year as i16);
+    request_set_subjects(bot, msg.chat).await?;
+    dialogue.update(ProfileCreationState::SetSubjects(profile)).await?;
+
+    Ok(())
+}
+
+fn subject_name(subject: Subjects) -> Result<&'static str> {
+    Ok(match subject {
+        Subjects::Art => "Искусство 🎨",
+        Subjects::Astronomy => "Астрономия 🌌",
+        Subjects::Biology => "Биология 🔬",
+        Subjects::Chemistry => "Химия 🧪",
+        Subjects::Chinese => "Китайский 🇨🇳",
+        Subjects::Ecology => "Экология ♻️",
+        Subjects::Economics => "Экономика 💶",
+        Subjects::English => "Английский 🇬🇧",
+        Subjects::French => "Французский 🇫🇷",
+        Subjects::Geography => "География 🌎",
+        Subjects::German => "Немецкий 🇩🇪",
+        Subjects::History => "История 📰",
+        Subjects::Informatics => "Информатика 💻",
+        Subjects::Italian => "Итальянский 🇮🇹",
+        Subjects::Law => "Право 👨‍⚖️",
+        Subjects::Literature => "Литература 📖",
+        Subjects::Math => "Математика 📐",
+        Subjects::Physics => "Физика ☢️",
+        Subjects::Russian => "Русский 🇷🇺",
+        Subjects::Safety => "ОБЖ 🪖",
+        Subjects::Social => "Обществознание 👫",
+        Subjects::Spanish => "Испанский 🇪🇸",
+        Subjects::Sport => "Физкультура 🏐",
+        Subjects::Technology => "Технология 🚜",
+        _ => bail!("unknown subject"),
+    })
+}
+
+// fn make_subjects_keyboard(selected: Subjects) -> InlineKeyboardMarkup {
+//     let mut keyboard = Vec::new();
+
+//     macro_rules! add_subjects {
+//         ($type:expr, $subjects:expr) => {
+//             keyboard.push(vec![InlineKeyboardButton::callback($type,
+// $type)]);             keyboard.extend(
+//                 $subjects
+//                     .into_iter()
+//                     .map(|s| {
+//                         InlineKeyboardButton::callback(
+//                             if selected.contains(s) {
+//                                 format!("✅ {}", subject_name(s).unwrap())
+//                             } else {
+//                                 subject_name(s).unwrap().to_owned()
+//                             },
+//                             s.bits().to_string(),
+//                         )
+//                     })
+//                     .chunks(3)
+//                     .into_iter()
+//                     .map(|r| r.collect()),
+//             );
+//         };
+//     }
+
+//     add_subjects!(text::SUBJECTS_HUMANITARIAN, [
+//         Subjects::Art,
+//         Subjects::Geography,
+//         Subjects::History,
+//         Subjects::Law,
+//         Subjects::Literature,
+//         Subjects::Social
+//     ]);
+//     add_subjects!(text::SUBJECTS_TECHNICAL, [
+//         Subjects::Astronomy,
+//         Subjects::Chemistry,
+//         Subjects::Economics,
+//         Subjects::Informatics,
+//         Subjects::Math,
+//         Subjects::Physics,
+//     ]);
+//     add_subjects!(text::SUBJECTS_LANGUAGES, [
+//         Subjects::Chinese,
+//         Subjects::English,
+//         Subjects::French,
+//         Subjects::German,
+//         Subjects::Italian,
+//         Subjects::Spanish
+//     ]);
+//     add_subjects!(text::SUBJECTS_OTHER, [
+//         Subjects::Biology,
+//         Subjects::Ecology,
+//         Subjects::Russian,
+//         Subjects::Safety,
+//         Subjects::Sport,
+//         Subjects::Technology,
+//     ]);
+
+//     keyboard.push(vec![InlineKeyboardButton::callback(
+//         text::SUBJECTS_CONTINUE,
+//         text::SUBJECTS_CONTINUE,
+//     )]);
+//     InlineKeyboardMarkup::new(keyboard)
+// }
+
+fn make_subjects_keyboard(selected: Subjects) -> InlineKeyboardMarkup {
+    let mut keyboard: Vec<_> = Subjects::all()
+        .iter_names()
+        .chunks(3)
+        .into_iter()
+        .map(|row| {
+            row.map(|(_, val)| {
+                InlineKeyboardButton::callback(
+                    if selected.contains(val) {
+                        format!("✅ {}", subject_name(val).unwrap())
+                    } else {
+                        subject_name(val).unwrap().to_owned()
+                    },
+                    val.bits().to_string(),
+                )
+            })
+            .collect()
+        })
+        .collect();
+
+    keyboard.push(vec![InlineKeyboardButton::callback(
+        text::SUBJECTS_CONTINUE,
+        text::SUBJECTS_CONTINUE,
+    )]);
+    InlineKeyboardMarkup::new(keyboard)
+}
+
+async fn request_set_subjects(bot: Bot, chat: Chat) -> Result<()> {
+    bot.send_message(chat.id, "* костыль для удаления клавиатуры *")
+        .reply_markup(KeyboardRemove::new())
+        .await?;
+    bot.send_message(chat.id, text::EDIT_SUBJECTS)
+        .reply_markup(make_subjects_keyboard(Subjects::default()))
+        .await?;
+    Ok(())
+}
+
+async fn handle_set_subjects_callback(
+    bot: Bot,
+    dialogue: ProfileCreationDialogue,
+    mut profile: NewProfile,
+    q: CallbackQuery,
 ) -> anyhow::Result<()> {
-    macro_rules! make_handler {
-        (
-            $text:ident,
-            $retry_text:expr,
-            $validate:expr,
-            $action:expr,
-            $next_text:expr,
-            $next_state:expr
-        ) => {
-            match msg.text() {
-                Some($text) if $validate => {
-                    $action;
-                    bot.send_message(msg.chat.id, $next_text).await?;
-                    dialogue.update($next_state).await?;
-                }
-                _ => {
-                    bot.send_message(msg.chat.id, $retry_text).await?;
-                }
-            }
-        };
-        (
-            $text:ident,
-            $retry_text:expr,
-            $validate:expr,
-            $action:expr,
-            $next_text:expr,
-            $keyboard:expr,
-            $next_state:expr
-        ) => {
-            match msg.text() {
-                Some($text) if $validate => {
-                    $action;
-                    bot.send_message(msg.chat.id, $next_text)
-                        .reply_markup($keyboard)
-                        .await?;
-                    dialogue.update($next_state).await?;
-                }
-                _ => {
-                    bot.send_message(msg.chat.id, $retry_text).await?;
-                }
-            }
-        };
-    }
+    let text = q.data.context("callback data not provided")?;
+    let msg = q.message.context("callback without message")?;
 
-    match state {
-        State::NewName(_) => make_handler!(
-            t,
-            text::EDIT_NAME,
-            (3..=30).contains(&t.len()),
-            profile.name = Some(t.to_owned()),
-            text::EDIT_GENDER,
-            {
-                let keyboard: Vec<Vec<InlineKeyboardButton>> = vec![
-                    vec![InlineKeyboardButton::callback(
-                        "Мужской",
-                        Gender::Male.to_string(),
-                    )],
-                    vec![InlineKeyboardButton::callback(
-                        "Женский",
-                        Gender::Female.to_string(),
-                    )],
-                ];
-                InlineKeyboardMarkup::new(keyboard)
-            },
-            State::NewGender(profile)
-        ),
-        State::NewAbout(_) => make_handler!(
-            t,
-            text::EDIT_ABOUT,
-            (1..=100).contains(&t.len()),
-            profile.about = Some(t.to_owned()),
-            text::EDIT_TARGET_GENDER,
-            {
-                let keyboard: Vec<Vec<InlineKeyboardButton>> = vec![
-                    vec![InlineKeyboardButton::callback(
-                        "Мужской",
-                        Gender::Male.to_string(),
-                    )],
-                    vec![InlineKeyboardButton::callback(
-                        "Женский",
-                        Gender::Female.to_string(),
-                    )],
-                ];
-                InlineKeyboardMarkup::new(keyboard)
-            },
-            State::NewTargetGender(profile)
-        ),
-        _ => {}
+    if text == text::SUBJECTS_CONTINUE {
+        bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
+        dialogue
+            .update(ProfileCreationState::SetPartnerSubjects(profile))
+            .await?;
+        request_set_partner_subjects(bot, msg.chat).await?;
+    } else {
+        let subjects = profile.subjects.unwrap_or_default()
+            ^ Subjects::from_bits(text.parse()?).context("subjects error")?;
+        profile.subjects = Some(subjects);
+        bot.edit_message_reply_markup(msg.chat.id, msg.id)
+            .reply_markup(make_subjects_keyboard(subjects))
+            .await?;
+        dialogue.update(ProfileCreationState::SetSubjects(profile)).await?;
     }
+    Ok(())
+}
 
+async fn request_set_partner_subjects(bot: Bot, chat: Chat) -> Result<()> {
+    bot.send_message(chat.id, text::EDIT_PARTNER_SUBJECTS)
+        .reply_markup(make_subjects_keyboard(Subjects::default()))
+        .await?;
+    Ok(())
+}
+
+async fn handle_set_partner_subjects_callback(
+    bot: Bot,
+    dialogue: ProfileCreationDialogue,
+    mut profile: NewProfile,
+    q: CallbackQuery,
+) -> anyhow::Result<()> {
+    let text = q.data.context("callback data not provided")?;
+    let msg = q.message.context("callback without message")?;
+
+    if text == text::SUBJECTS_CONTINUE {
+        bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
+        dialogue.update(ProfileCreationState::SetAbout(profile)).await?;
+        request_set_about(bot, msg.chat).await?;
+    } else {
+        let subjects = profile.partner_subjects.unwrap_or_default()
+            ^ Subjects::from_bits(text.parse()?).context("subjects error")?;
+        profile.partner_subjects = Some(subjects);
+        bot.edit_message_reply_markup(msg.chat.id, msg.id)
+            .reply_markup(make_subjects_keyboard(subjects))
+            .await?;
+        dialogue
+            .update(ProfileCreationState::SetPartnerSubjects(profile))
+            .await?;
+    }
+    Ok(())
+}
+
+async fn request_set_about(bot: Bot, chat: Chat) -> Result<()> {
+    bot.send_message(chat.id, text::EDIT_ABOUT).await?;
+    Ok(())
+}
+
+async fn handle_set_about(
+    db: Arc<Database>,
+    bot: Bot,
+    dialogue: ProfileCreationDialogue,
+    msg: Message,
+    mut profile: NewProfile,
+) -> Result<()> {
+    match msg.text() {
+        Some(text) if (1..=1000).contains(&text.len()) => {
+            dialogue.exit().await?;
+            profile.about = Some(text.to_owned());
+            let profile = Profile::try_from(profile)?;
+            db.create_user(
+                msg.chat.id.0,
+                profile.name,
+                profile.about,
+                profile.gender,
+                profile.partner_gender,
+                profile.graduation_year,
+                profile.subjects.0 .0,
+                profile.partner_subjects.bits(),
+            )
+            .await?;
+        }
+        _ => {
+            request_set_about(bot, msg.chat).await?;
+        }
+    }
     Ok(())
 }
 
@@ -391,27 +562,37 @@ enum Command {
 }
 
 mod text {
-    pub const EDIT_NAME: &str =
-        "Напиши имя от 3 до 20 символов (0 для пропуска).";
-    pub const EDIT_GENDER: &str = "edit gender";
-    pub const EDIT_GRADE: &str = "edit grade TODO";
-    pub const EDIT_SUBJECT: &str = "Напиши предметы бота (0 для пропуска).";
-    pub const EDIT_ABOUT: &str =
-        "Напиши описание до 100 символов (0 для пропуска).";
-    pub const EDIT_TARGET_GENDER: &str = "edit target gender";
+    pub const EDIT_NAME: &str = "Укажите ваше имя (3-20 символов)";
+    pub const EDIT_GENDER: &str = "Выберите ваш пол";
+    pub const REQUEST_GRADE: &str = "В каком вы сейчас классе?";
+    pub const EDIT_SUBJECTS: &str = "Какие предметы вы ботаете? Нажмите на \
+                                     предмет, чтобы добавить или убрать его.";
+    pub const EDIT_PARTNER_SUBJECTS: &str =
+        "Какие предметы должен ботать тот, кого вы ищете? Нажмите на предмет, \
+         чтобы добавить или убрать его. Достаточно одного совпадения. Если \
+         вам не важно, что он ботает, не выбирайте ничего.";
+    pub const EDIT_ABOUT: &str = "Немного расскажите о себе";
+    pub const EDIT_PARTNER_GENDER: &str = "Кого вы ищете?";
+    pub const SUBJECTS_CONTINUE: &str = "Продолжить";
+    // pub const SUBJECTS_HUMANITARIAN: &str = "Гуманитарные";
+    // pub const SUBJECTS_TECHNICAL: &str = "Технические";
+    // pub const SUBJECTS_LANGUAGES: &str = "Языковые";
+    // pub const SUBJECTS_OTHER: &str = "Другие";
 }
 
 // #[tracing::instrument(skip(db, bot))]
 async fn answer(
     bot: Bot,
-    dialogue: MyDialogue,
+    dialogue: ProfileCreationDialogue,
     msg: Message,
     cmd: Command,
 ) -> anyhow::Result<()> {
     match cmd {
         Command::NewProfile => {
-            dialogue.update(State::NewName(NewProfile::default())).await?;
-            bot.send_message(msg.chat.id, text::EDIT_NAME).await?;
+            dialogue
+                .update(ProfileCreationState::SetName(NewProfile::default()))
+                .await?;
+            request_set_name(bot, msg.chat).await?;
         }
         Command::EditProfile => {
             // if get_anketa(msg.chat.id.0).await?.is_some() {
@@ -433,9 +614,5 @@ async fn answer(
 
 async fn invalid_command(bot: Bot, msg: Message) -> anyhow::Result<()> {
     bot.send_message(msg.chat.id, Command::descriptions().to_string()).await?;
-    Ok(())
-}
-
-async fn save_profile_to_db(_profile: &Profile) -> anyhow::Result<()> {
     Ok(())
 }

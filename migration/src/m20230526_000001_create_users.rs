@@ -37,11 +37,17 @@ impl MigrationTrait for Migration {
                             .enumeration(Gender::Table, Gender::iter().skip(1)),
                     )
                     .col(ColumnDef::new(Users::About).string().not_null())
-                    .col(ColumnDef::new(Users::Active).boolean().not_null())
+                    .col(
+                        ColumnDef::new(Users::Active)
+                            .boolean()
+                            .not_null()
+                            .default(true),
+                    )
                     .col(
                         ColumnDef::new(Users::LastActivity)
                             .date_time()
-                            .not_null(),
+                            .not_null()
+                            .default(Expr::current_timestamp()),
                     )
                     .col(
                         ColumnDef::new(Users::GraduationYear)
@@ -51,22 +57,26 @@ impl MigrationTrait for Migration {
                     .col(
                         ColumnDef::new(Users::UpGraduationYearDeltaPref)
                             .tiny_integer()
-                            .not_null(),
+                            .not_null()
+                            .default(1),
                     )
                     .col(
                         ColumnDef::new(Users::DownGraduationYearDeltaPref)
                             .tiny_integer()
-                            .not_null(),
+                            .not_null()
+                            .default(1),
                     )
                     .col(
                         ColumnDef::new(Users::Subjects)
                             .big_integer()
-                            .not_null(),
+                            .not_null()
+                            .default(0),
                     )
                     .col(
                         ColumnDef::new(Users::SubjectsPrefs)
                             .big_integer()
-                            .not_null(),
+                            .not_null()
+                            .default(0),
                     )
                     .to_owned(),
             )
@@ -131,7 +141,12 @@ impl MigrationTrait for Migration {
                             .from(Datings::Table, Datings::PartnerId)
                             .to(Users::Table, Users::Id),
                     )
-                    .col(ColumnDef::new(Datings::Time).date_time().not_null())
+                    .col(
+                        ColumnDef::new(Datings::Time)
+                            .date_time()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
                     .col(ColumnDef::new(Datings::InitiatorReaction).boolean())
                     .col(ColumnDef::new(Datings::PartnerReaction).boolean())
                     .to_owned(),
