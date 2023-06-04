@@ -324,7 +324,9 @@ async fn handle_set_graduation_year(
     mut profile: NewProfile,
 ) -> Result<()> {
     let Some(text) = msg.text() else {bail!("no text in message")};
-    let Ok(grade) = text.parse::<i32>() else {request_set_graduation_year(bot, msg.chat).await?; return Ok(())};
+    let Ok(grade) = text.parse::<i32>() else {
+        request_set_graduation_year(bot, msg.chat).await?; return Ok(())
+    };
 
     let date = chrono::Local::now();
 
@@ -676,6 +678,8 @@ async fn handle_set_about(
                 profile.graduation_year,
                 profile.subjects.0 .0,
                 profile.partner_subjects.bits(),
+                0,
+                true,
             )
             .await?;
         }

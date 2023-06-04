@@ -27,6 +27,8 @@ impl Database {
         graduation_year: i16,
         subjects: i64,
         subjects_prefs: i64,
+        city: i16,
+        same_city_pref: bool,
     ) -> Result<()> {
         let user = users::ActiveModel {
             id: ActiveValue::Set(id),
@@ -37,6 +39,8 @@ impl Database {
             graduation_year: ActiveValue::Set(graduation_year),
             subjects: ActiveValue::Set(subjects),
             subjects_prefs: ActiveValue::Set(subjects_prefs),
+            city: ActiveValue::Set(city),
+            same_city_pref: ActiveValue::Set(same_city_pref),
             ..Default::default()
         };
         Users::insert(user).exec(&self.conn).await?;
@@ -142,6 +146,12 @@ impl Database {
                         users::Column::GenderPref.eq(Some(user.gender.clone())),
                     ),
             )
+            // Respect partner's city preference
+            .filter(
+                Condition::any()
+                    .add(users::Column::SameCityPref.eq(false))
+                    .add(users::Column::City.eq(user.city)),
+            )
             // Don't recommend the same partner more than once a week
             .join_rev(
                 JoinType::LeftJoin,
@@ -179,6 +189,12 @@ impl Database {
         if let Some(g) = &user.gender_pref {
             partner_query =
                 partner_query.filter(users::Column::Gender.eq(Some(g.clone())));
+        }
+
+        // Respect user's city preference
+        if user.same_city_pref {
+            partner_query =
+                partner_query.filter(users::Column::City.eq(user.city));
         }
 
         let txn = self.conn.begin().await?;

@@ -20,6 +20,8 @@ pub struct Model {
     pub down_graduation_year_delta_pref: i16,
     pub subjects: i64,
     pub subjects_prefs: i64,
+    pub city: i16,
+    pub same_city_pref: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

@@ -78,6 +78,13 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(0),
                     )
+                    .col(ColumnDef::new(Users::City).tiny_integer().not_null())
+                    .col(
+                        ColumnDef::new(Users::SameCityPref)
+                            .boolean()
+                            .not_null()
+                            .default(true),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -202,6 +209,8 @@ enum Users {
     DownGraduationYearDeltaPref,
     Subjects,
     SubjectsPrefs,
+    City,
+    SameCityPref,
 }
 
 #[derive(Iden)]
