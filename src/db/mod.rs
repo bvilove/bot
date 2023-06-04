@@ -65,11 +65,20 @@ impl Database {
         Users::find_by_id(id).one(&self.conn).await?.context("user not found")
     }
 
+    pub async fn update_last_activity(&self, id: i64) -> Result<()> {
+        Users::update_many()
+            .col_expr(
+                users::Column::LastActivity,
+                Expr::current_timestamp().into(),
+            )
+            .filter(users::Column::Id.eq(id))
+            .exec(&self.conn)
+            .await?;
+        Ok(())
+    }
+
     pub async fn _get_partner(&self, user_id: i64) -> Result<users::Model> {
         let now_utc = Utc::now();
-        let now_naive =
-            NaiveDateTime::from_timestamp_micros(now_utc.timestamp_micros())
-                .expect("naive time must be created");
         let week_ago_utc = now_utc - Duration::weeks(1);
         let week_ago_naive = NaiveDateTime::from_timestamp_micros(
             week_ago_utc.timestamp_micros(),
@@ -82,11 +91,9 @@ impl Database {
             .await?
             .context("user not found")?;
 
-        // Update last activity datetime
-        let mut active_user: users::ActiveModel = user.clone().into();
-        active_user.last_activity = Set(now_naive);
-        active_user.update(&self.conn).await?;
+        self.update_last_activity(user_id).await?;
 
+        // TODO: fix this
         let user_id_clone = user.id.clone();
 
         let mut partner_query = Users::find()
