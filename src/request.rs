@@ -13,7 +13,7 @@ pub async fn request_set_city(bot: Bot, chat: Chat) -> anyhow::Result<()> {
     ]];
     let keyboard_markup = KeyboardMarkup::new(keyboard).resize_keyboard(true);
 
-    bot.send_message(chat.id, text::EDIT_CITY)
+    bot.send_message(chat.id, text::EDIT_PARTNER_CITY)
         .reply_markup(keyboard_markup)
         .await?;
     Ok(())
@@ -23,16 +23,7 @@ pub async fn request_set_partner_city(
     bot: Bot,
     chat: Chat,
 ) -> anyhow::Result<()> {
-    // TODO
-    // let keyboard = vec![vec![
-    //     KeyboardButton::new(text::USER_CITY_CURRENT),
-    //     KeyboardButton::new(text::USER_CITY_ANY),
-    // ]];
-    // let keyboard_markup = KeyboardMarkup::new(keyboard).resize_keyboard(true);
-
-    // bot.send_message(chat.id, text::EDIT_CITY)
-    //     .reply_markup(keyboard_markup)
-    //     .await?;
+    bot.send_message(chat.id, text::EDIT_CITY).await?;
     Ok(())
 }
 

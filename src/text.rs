@@ -22,4 +22,5 @@ pub const SUBJECTS_USER_EMPTY: &str = "Никакие";
 // pub const SUBJECTS_OTHER: &str = "Другие";
 pub const USER_CITY_CURRENT: &str = "Только в моём городе";
 pub const USER_CITY_ANY: &str = "По всей России";
-pub const EDIT_CITY: &str = "Где искать вашего абонента?";
+pub const EDIT_PARTNER_CITY: &str = "Где искать вашего абонента?";
+pub const EDIT_CITY: &str = "Напишите ваш город";

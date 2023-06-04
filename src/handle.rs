@@ -83,6 +83,55 @@ async fn print_next_state(
     Ok(())
 }
 
+const CITIES: [&str; 4] = [
+    "Москва",
+    "Саранск",
+    "Петербург",
+    "Нью-йорк"
+];
+
+/// Calculates the Levenshtein Distance between 2 strings
+fn distance(a: &str, b: &str) -> usize {
+    use std::cmp::min;
+
+    let a = a.chars().collect::<Vec<char>>();
+    let b = b.chars().collect::<Vec<char>>();
+
+    let mut d = vec![vec![0; b.len() + 1]; a.len() + 1];
+
+    for i in 1..=a.len() {
+        d[i][0] = i
+    }
+
+    for j in 1..=b.len() {
+        d[0][j] = j
+    }
+
+    for j in 1..=b.len() {
+        for i in 1..=a.len() {
+            let cost = if a[i-1] == b[j-1] {
+                0
+            } else {
+                1
+            };
+            d[i][j] = min(min(d[i - 1][j] + 1, d[i][j - 1] + 1), d[i - 1][j - 1] + cost);
+        }
+    }
+
+    d[a.len()][b.len()]
+}
+
+fn get_closest(arr: &'static [&str], name: &str) -> Option<usize> {
+    let mut closest = (None, usize::MAX);
+    for (i, other) in arr.iter().enumerate().filter(|(_, &e)| e != name) {
+        let dist = distance(name, other);
+        if dist < closest.1 && dist < std::cmp::min(name.len(), other.len()) {
+            closest = (Some(i), dist);
+        }
+    }
+    closest.0
+}
+
 pub async fn handle_set_city(
     bot: Bot,
     dialogue: MyDialogue,
@@ -90,7 +139,15 @@ pub async fn handle_set_city(
     mut profile: NewProfile,
     state: State,
 ) -> anyhow::Result<()> {
-    // let city = TODO
+    let text = msg.text().context("no text in message")?;
+    match get_closest(&CITIES, text) {
+        Some(city) => {
+            bot.send_message(msg.chat.id, format!("Ваш город: {}?", CITIES[city])).await?;
+        }
+        None => {
+            bot.send_message(msg.chat.id, "Попробуйте ещё раз.").await?;
+        }
+    }
     profile.city = Some(1);
     next_state(dialogue, &state, profile).await?;
     print_next_state(&state, bot, msg.chat).await?;
