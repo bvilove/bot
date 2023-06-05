@@ -1,8 +1,17 @@
-use std::cell::LazyCell;
+use std::sync::OnceLock;
 
 use simsearch::SimSearch;
 
-pub const CITIES: LazyCell<Vec<Vec<&str>>> = LazyCell::new(|| {
+macro_rules! lazy_cell {
+    ($name:tt, $t:ty, $init:expr) => {
+        pub fn $name() -> &'static $t {
+            static LOCK: OnceLock<$t> = OnceLock::new();
+            LOCK.get_or_init($init)
+        }
+    };
+}
+
+lazy_cell!(CITIES, Vec<Vec<&'static str>>, || {
     vec![
         vec!["Москва"],
         vec!["Питербург", "Санкт-Питербург", "Ленинград"],
@@ -10,9 +19,9 @@ pub const CITIES: LazyCell<Vec<Vec<&str>>> = LazyCell::new(|| {
     ]
 });
 
-const ENGINE: LazyCell<SimSearch<usize>> = LazyCell::new(|| {
+lazy_cell!(ENGINE, SimSearch<usize>, || {
     let mut engine: SimSearch<usize> = SimSearch::new();
-    for (city_id, city) in CITIES.iter().enumerate() {
+    for (city_id, city) in CITIES().iter().enumerate() {
         for (alias_id, city_alias) in city.iter().enumerate() {
             engine.insert(city_id * 100 + alias_id, city_alias);
         }
@@ -21,6 +30,6 @@ const ENGINE: LazyCell<SimSearch<usize>> = LazyCell::new(|| {
 });
 
 pub fn find_city(query: &str) -> Option<(usize, &str)> {
-    let results = ENGINE.search(query);
-    results.first().map(|r| (r / 100, CITIES[r / 100][0]))
+    let results = ENGINE().search(query);
+    results.first().map(|r| (r / 100, CITIES()[r / 100][0]))
 }

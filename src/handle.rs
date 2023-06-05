@@ -104,7 +104,7 @@ pub async fn handle_set_city(
             next_state(dialogue, msg.chat, state, profile, bot, db).await?;
         }
         "Список городов" => {
-            let cities: String = crate::cities::CITIES
+            let cities: String = crate::cities::CITIES()
                 .iter()
                 .map(|c| format!("{}\n", c[0]))
                 .collect();

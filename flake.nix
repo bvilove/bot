@@ -15,7 +15,7 @@
       system: let
         overlays = [(import rust-overlay)];
         pkgs = import nixpkgs {inherit system overlays;};
-        rustVersion = pkgs.rust-bin.nightly.latest.default;
+        rustVersion = pkgs.rust-bin.stable.latest.default;
 
         pgstart = pkgs.writeShellScriptBin "pgstart" ''
           if [ ! -d $PGHOST ]; then
