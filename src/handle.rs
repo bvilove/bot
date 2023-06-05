@@ -1,37 +1,42 @@
 use std::sync::Arc;
 
 use anyhow::{bail, Context};
-use chrono::Datelike;
 use db::Database;
 use entities::sea_orm_active_enums::Gender;
 use teloxide::{
     prelude::*,
-    types::{Chat, KeyboardButton, KeyboardMarkup, KeyboardRemove},
+    types::{Chat, KeyboardButton, KeyboardMarkup},
 };
 
 use crate::{
-    db, text, utils, Bot, MyDialogue, NewProfile, Profile, State, Subjects,
+    db, text, utils, Bot, EditProfile, MyDialogue, Profile, State, Subjects,
 };
 
 async fn next_state(
     dialogue: MyDialogue,
     chat: Chat,
     state: State,
-    p: NewProfile,
+    p: EditProfile,
     bot: Bot,
     db: Arc<Database>,
 ) -> anyhow::Result<()> {
     use State::*;
     let next_state = match state {
-        SetName(_) => SetGender(p),
-        SetGender(_) => SetPartnerGender(p),
-        SetPartnerGender(_) => SetGraduationYear(p),
-        SetGraduationYear(_) => SetSubjects(p),
-        SetSubjects(_) => SetPartnerSubjects(p),
-        SetPartnerSubjects(_) => SetCity(p),
-        SetCity(_) => SetPartnerCity(p),
-        SetPartnerCity(_) => SetAbout(p),
-        SetAbout(_) => {
+        SetName(EditProfile { create_new: true, .. }) => SetGender(p),
+        SetGender(EditProfile { create_new: true, .. }) => SetPartnerGender(p),
+        SetPartnerGender(EditProfile { create_new: true, .. }) => {
+            SetGraduationYear(p)
+        }
+        SetGraduationYear(EditProfile { create_new: true, .. }) => {
+            SetSubjects(p)
+        }
+        SetSubjects(EditProfile { create_new: true, .. }) => {
+            SetPartnerSubjects(p)
+        }
+        SetPartnerSubjects(EditProfile { create_new: true, .. }) => SetCity(p),
+        SetCity(EditProfile { create_new: true, .. }) => SetPartnerCity(p),
+        SetPartnerCity(EditProfile { create_new: true, .. }) => SetAbout(p),
+        SetAbout(EditProfile { create_new: true, .. }) => {
             let profile = Profile::try_from(p)?;
             db.create_user(
                 dialogue.chat_id().0,
@@ -47,12 +52,15 @@ async fn next_state(
             )
             .await?;
 
-            dialogue.exit().await?;
-            return Ok(());
+            Start
         }
         Start => {
             dialogue.exit().await?;
             anyhow::bail!("wrong state: {:?}", state)
+        }
+        _ => {
+            // TODO: call db
+            Start
         }
     };
     print_current_state(&next_state, bot, chat).await?;
@@ -81,7 +89,8 @@ async fn print_current_state(
         SetCity(_) => request_set_city(bot, chat).await?,
         SetPartnerCity(_) => request_set_partner_city(bot, chat).await?,
         SetAbout(_) => request_set_about(bot, chat).await?,
-        Start => anyhow::bail!("wrong state: {:?}", state),
+        Start => {}
+        // _ => anyhow::bail!("wrong state: {:?}", state),
     };
     Ok(())
 }
@@ -91,7 +100,7 @@ pub async fn handle_set_city(
     bot: Bot,
     dialogue: MyDialogue,
     msg: Message,
-    mut profile: NewProfile,
+    mut profile: EditProfile,
     state: State,
 ) -> anyhow::Result<()> {
     let text = msg.text().context("no text in message")?;
@@ -150,7 +159,7 @@ pub async fn handle_set_partner_city(
     bot: Bot,
     dialogue: MyDialogue,
     msg: Message,
-    mut profile: NewProfile,
+    mut profile: EditProfile,
     state: State,
 ) -> anyhow::Result<()> {
     let same_partner_city = match msg.text().context("no text in message")? {
@@ -173,7 +182,7 @@ pub async fn handle_set_name(
     bot: Bot,
     dialogue: MyDialogue,
     msg: Message,
-    mut profile: NewProfile,
+    mut profile: EditProfile,
     state: State,
 ) -> anyhow::Result<()> {
     match msg.text() {
@@ -203,7 +212,7 @@ pub async fn handle_set_gender(
     bot: Bot,
     dialogue: MyDialogue,
     msg: Message,
-    mut profile: NewProfile,
+    mut profile: EditProfile,
     state: State,
 ) -> anyhow::Result<()> {
     let gender = match msg.text().context("no text in message")? {
@@ -226,7 +235,7 @@ pub async fn handle_set_partner_gender(
     bot: Bot,
     dialogue: MyDialogue,
     msg: Message,
-    mut profile: NewProfile,
+    mut profile: EditProfile,
     state: State,
 ) -> anyhow::Result<()> {
     let gender = match msg.text().context("no text in message")? {
@@ -239,7 +248,7 @@ pub async fn handle_set_partner_gender(
         }
     };
 
-    profile.partner_gender = gender;
+    profile.partner_gender = Some(gender);
     next_state(dialogue, msg.chat, state, profile, bot, db).await?;
 
     Ok(())
@@ -250,7 +259,7 @@ pub async fn handle_set_graduation_year(
     bot: Bot,
     dialogue: MyDialogue,
     msg: Message,
-    mut profile: NewProfile,
+    mut profile: EditProfile,
     state: State,
 ) -> anyhow::Result<()> {
     let Ok(grade) = msg
@@ -285,7 +294,7 @@ pub async fn handle_set_subjects_callback(
     db: Arc<Database>,
     bot: Bot,
     dialogue: MyDialogue,
-    mut profile: NewProfile,
+    mut profile: EditProfile,
     state: State,
     q: CallbackQuery,
 ) -> anyhow::Result<()> {
@@ -339,7 +348,7 @@ pub async fn handle_set_partner_subjects_callback(
     db: Arc<Database>,
     bot: Bot,
     dialogue: MyDialogue,
-    mut profile: NewProfile,
+    mut profile: EditProfile,
     state: State,
     q: CallbackQuery,
 ) -> anyhow::Result<()> {
@@ -399,7 +408,7 @@ pub async fn handle_set_about(
     bot: Bot,
     dialogue: MyDialogue,
     msg: Message,
-    mut profile: NewProfile,
+    mut profile: EditProfile,
     state: State,
 ) -> anyhow::Result<()> {
     match msg.text() {

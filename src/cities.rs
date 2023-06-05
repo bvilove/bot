@@ -4,6 +4,7 @@ use simsearch::SimSearch;
 
 macro_rules! lazy_cell {
     ($name:tt, $t:ty, $init:expr) => {
+        #[allow(non_snake_case)]
         pub fn $name() -> &'static $t {
             static LOCK: OnceLock<$t> = OnceLock::new();
             LOCK.get_or_init($init)

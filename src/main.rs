@@ -124,21 +124,38 @@ bitflags! {
     }
 }
 
-#[derive(Clone, Default, Debug)]
-pub struct NewProfile {
-    name: Option<String>,
-    gender: Option<Gender>,
-    graduation_year: Option<i16>,
-    subjects: Option<Subjects>,
-    partner_subjects: Option<Subjects>,
-    about: Option<String>,
-    partner_gender: Option<Gender>,
-    city: Option<i16>,
-    same_partner_city: Option<bool>,
+macro_rules! make_profile {
+    ($($element:ident: $ty:ty),* $(,)?) => {
+        #[derive(Debug)]
+        pub struct Profile {
+            $($element: $ty),*
+        }
+        #[derive(Clone, Default, Debug)]
+        pub struct EditProfile {
+            create_new: bool,
+            $($element: Option<$ty>),*
+        }
+        impl TryFrom<EditProfile> for Profile {
+            type Error = anyhow::Error;
+
+            fn try_from(new: EditProfile) -> Result<Self, Self::Error> {
+                match new {
+                    EditProfile {
+                        create_new: true,
+                        $($element: Some($element)),*
+                    } => Ok(Profile {
+                        $($element),*
+                    }),
+                    _ => {
+                        anyhow::bail!("can't create Profile from NewProfile: {:?}", new)
+                    }
+                }
+            }
+        }
+    };
 }
 
-#[derive(Debug)]
-struct Profile {
+make_profile!(
     name: String,
     gender: Gender,
     graduation_year: i16,
@@ -148,54 +165,21 @@ struct Profile {
     partner_gender: Option<Gender>,
     city: i16,
     same_partner_city: bool,
-}
-
-impl TryFrom<NewProfile> for Profile {
-    type Error = anyhow::Error;
-
-    fn try_from(new: NewProfile) -> Result<Self, Self::Error> {
-        match new {
-            NewProfile {
-                name: Some(name),
-                gender: Some(gender),
-                graduation_year: Some(grade),
-                subjects: Some(subjects),
-                partner_subjects: Some(partner_subjects),
-                about: Some(about),
-                partner_gender,
-                city: Some(city),
-                same_partner_city: Some(same_partner_city),
-            } => Ok(Profile {
-                name,
-                gender,
-                graduation_year: grade,
-                subjects,
-                partner_subjects,
-                about,
-                partner_gender,
-                city,
-                same_partner_city,
-            }),
-            _ => {
-                anyhow::bail!("can't create Profile from NewProfile: {:?}", new)
-            }
-        }
-    }
-}
+);
 
 #[derive(Clone, Default, Debug)]
 pub enum State {
     #[default]
     Start,
-    SetName(NewProfile),
-    SetGender(NewProfile),
-    SetPartnerGender(NewProfile),
-    SetGraduationYear(NewProfile),
-    SetSubjects(NewProfile),
-    SetPartnerSubjects(NewProfile),
-    SetCity(NewProfile),
-    SetPartnerCity(NewProfile),
-    SetAbout(NewProfile),
+    SetName(EditProfile),
+    SetGender(EditProfile),
+    SetPartnerGender(EditProfile),
+    SetGraduationYear(EditProfile),
+    SetSubjects(EditProfile),
+    SetPartnerSubjects(EditProfile),
+    SetCity(EditProfile),
+    SetPartnerCity(EditProfile),
+    SetAbout(EditProfile),
 }
 
 #[derive(Debug, BotCommands, Clone)]
@@ -223,7 +207,10 @@ async fn answer(
 ) -> anyhow::Result<()> {
     match cmd {
         Command::NewProfile => {
-            dialogue.update(State::SetName(NewProfile::default())).await?;
+            dialogue.update(State::SetName(EditProfile {
+                create_new: true,
+                ..Default::default()
+            })).await?;
             request::request_set_name(bot, msg.chat).await?;
         }
         Command::EditProfile => {
