@@ -22,6 +22,7 @@ rand = "0.8.5"
 bitflags = "2.3.1"
 strum = { version = "0.24.1", features = ["derive"] }
 itertools = "0.10.5"
+simsearch = "0.2.4"
 
 [workspace.dependencies]
 sea-orm = { version = "0.11.3", features = ["runtime-tokio-native-tls", "sqlx-postgres", "macros" ] }

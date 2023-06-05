@@ -1,6 +1,9 @@
+#![feature(lazy_cell)]
+
 use std::sync::Arc;
 
 use bitflags::bitflags;
+use db::Database;
 use entities::sea_orm_active_enums::Gender;
 use teloxide::{
     adaptors::{throttle::Limits, Throttle},
@@ -9,6 +12,8 @@ use teloxide::{
     utils::command::BotCommands,
 };
 
+mod cities;
+mod datings;
 mod db;
 mod handle;
 mod request;
@@ -48,8 +53,7 @@ async fn main() -> anyhow::Result<()> {
                         .endpoint(handle_set_graduation_year),
                 )
                 .branch(
-                    dptree::case![State::SetCity(a)]
-                        .endpoint(handle_set_city),
+                    dptree::case![State::SetCity(a)].endpoint(handle_set_city),
                 )
                 .branch(
                     dptree::case![State::SetPartnerCity(a)]
@@ -203,6 +207,7 @@ enum Command {
     NewProfile,
     #[command(description = "изменить анкету")]
     EditProfile,
+    Recommend,
     // #[command(description = "включить анкету")]
     // EnableAnketa,
     // #[command(description = "выключить анкета")]
@@ -212,6 +217,7 @@ enum Command {
 
 // #[tracing::instrument(skip(db, bot))]
 async fn answer(
+    db: Arc<Database>,
     bot: Bot,
     dialogue: MyDialogue,
     msg: Message,
@@ -234,6 +240,9 @@ async fn answer(
         Command::Help => {
             bot.send_message(msg.chat.id, Command::descriptions().to_string())
                 .await?;
+        }
+        Command::Recommend => {
+            datings::send_recommendation(bot, msg.chat, db).await?;
         }
     }
 

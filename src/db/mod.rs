@@ -77,7 +77,7 @@ impl Database {
         Ok(())
     }
 
-    pub async fn _get_partner(&self, user_id: i64) -> Result<users::Model> {
+    pub async fn get_partner(&self, user_id: i64) -> Result<users::Model> {
         let now_utc = Utc::now();
         let week_ago_utc = now_utc - Duration::weeks(1);
         let week_ago_naive = NaiveDateTime::from_timestamp_micros(
@@ -94,7 +94,7 @@ impl Database {
         self.update_last_activity(user_id).await?;
 
         // TODO: fix this
-        let user_id_clone = user.id.clone();
+        let user_id_clone = user.id;
 
         let mut partner_query = Users::find()
             // Don't recommend user to himself
@@ -148,7 +148,7 @@ impl Database {
             // Respect partner's gender preference
             .filter(
                 Condition::any()
-                    .add(users::Column::GenderPref.eq(None as Option<Gender>))
+                    .add(users::Column::GenderPref.is_null())
                     .add(
                         users::Column::GenderPref.eq(Some(user.gender.clone())),
                     ),

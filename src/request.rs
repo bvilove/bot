@@ -6,7 +6,10 @@ use teloxide::{
 
 use crate::{text, utils, Bot, Subjects};
 
-pub async fn request_set_city(bot: Bot, chat: Chat) -> anyhow::Result<()> {
+pub async fn request_set_partner_city(
+    bot: Bot,
+    chat: Chat,
+) -> anyhow::Result<()> {
     let keyboard = vec![vec![
         KeyboardButton::new(text::USER_CITY_CURRENT),
         KeyboardButton::new(text::USER_CITY_ANY),
@@ -19,11 +22,12 @@ pub async fn request_set_city(bot: Bot, chat: Chat) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn request_set_partner_city(
-    bot: Bot,
-    chat: Chat,
-) -> anyhow::Result<()> {
-    bot.send_message(chat.id, text::EDIT_CITY).await?;
+pub async fn request_set_city(bot: Bot, chat: Chat) -> anyhow::Result<()> {
+    let keyboard = vec![vec![KeyboardButton::new("Список городов")]];
+    let keyboard_markup = KeyboardMarkup::new(keyboard).resize_keyboard(true);
+    bot.send_message(chat.id, text::EDIT_CITY)
+        .reply_markup(keyboard_markup)
+        .await?;
     Ok(())
 }
 

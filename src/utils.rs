@@ -1,3 +1,4 @@
+use chrono::Datelike;
 use itertools::Itertools;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
 
@@ -163,3 +164,27 @@ pub fn make_subjects_keyboard(
 //     )]);
 //     InlineKeyboardMarkup::new(keyboard)
 // }
+
+pub fn graduation_year_from_grade(grade: i32) -> anyhow::Result<i32> {
+    let date = chrono::Local::now();
+
+    let year = if date.month() < 9 {
+        date.year() + (11 - grade)
+    } else {
+        date.year() + (11 - grade) + 1
+    };
+
+    Ok(year)
+}
+
+pub fn grade_from_graduation_year(graduation_year: i32) -> anyhow::Result<i32> {
+    let date = chrono::Local::now();
+
+    let year = if date.month() < 9 {
+        11 - (graduation_year - date.year())
+    } else {
+        11 - (graduation_year - date.year()) + 1
+    };
+
+    Ok(year)
+}

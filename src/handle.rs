@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use anyhow::Context;
+use anyhow::{bail, Context};
 use chrono::Datelike;
 use db::Database;
 use entities::sea_orm_active_enums::Gender;
 use teloxide::{
     prelude::*,
-    types::{Chat, KeyboardRemove},
+    types::{Chat, KeyboardButton, KeyboardMarkup, KeyboardRemove},
 };
 
 use crate::{
@@ -15,8 +15,11 @@ use crate::{
 
 async fn next_state(
     dialogue: MyDialogue,
-    state: &State,
+    chat: Chat,
+    state: State,
     p: NewProfile,
+    bot: Bot,
+    db: Arc<Database>,
 ) -> anyhow::Result<()> {
     use State::*;
     let next_state = match state {
@@ -28,11 +31,32 @@ async fn next_state(
         SetPartnerSubjects(_) => SetCity(p),
         SetCity(_) => SetPartnerCity(p),
         SetPartnerCity(_) => SetAbout(p),
-        _ => {
+        SetAbout(_) => {
+            let profile = Profile::try_from(p)?;
+            db.create_user(
+                dialogue.chat_id().0,
+                profile.name,
+                profile.about,
+                profile.gender,
+                profile.partner_gender,
+                profile.graduation_year,
+                profile.subjects.0 .0,
+                profile.partner_subjects.bits(),
+                profile.city,
+                profile.same_partner_city,
+            )
+            .await?;
+
+            dialogue.exit().await?;
+            return Ok(());
+        }
+        Start => {
             dialogue.exit().await?;
             anyhow::bail!("wrong state: {:?}", state)
         }
     };
+    print_current_state(&next_state, bot, chat).await?;
+
     dialogue.update(next_state).await?;
     Ok(())
 }
@@ -57,82 +81,13 @@ async fn print_current_state(
         SetCity(_) => request_set_city(bot, chat).await?,
         SetPartnerCity(_) => request_set_partner_city(bot, chat).await?,
         SetAbout(_) => request_set_about(bot, chat).await?,
-        _ => anyhow::bail!("wrong state: {:?}", state),
+        Start => anyhow::bail!("wrong state: {:?}", state),
     };
     Ok(())
-}
-
-async fn print_next_state(
-    state: &State,
-    bot: Bot,
-    chat: Chat,
-) -> anyhow::Result<()> {
-    use State::*;
-
-    use crate::request::*;
-    match state {
-        SetName(_) => request_set_gender(bot, chat).await?,
-        SetGender(_) => request_set_partner_gender(bot, chat).await?,
-        SetPartnerGender(_) => request_set_graduation_year(bot, chat).await?,
-        SetGraduationYear(_) => request_set_subjects(bot, chat).await?,
-        SetSubjects(_) => request_set_partner_subjects(bot, chat).await?,
-        SetPartnerSubjects(_) => request_set_city(bot, chat).await?,
-        SetCity(_) => request_set_partner_city(bot, chat).await?,
-        _ => anyhow::bail!("wrong state: {:?}", state),
-    };
-    Ok(())
-}
-
-const CITIES: [&str; 4] = [
-    "Москва",
-    "Саранск",
-    "Петербург",
-    "Нью-йорк"
-];
-
-/// Calculates the Levenshtein Distance between 2 strings
-fn distance(a: &str, b: &str) -> usize {
-    use std::cmp::min;
-
-    let a = a.chars().collect::<Vec<char>>();
-    let b = b.chars().collect::<Vec<char>>();
-
-    let mut d = vec![vec![0; b.len() + 1]; a.len() + 1];
-
-    for i in 1..=a.len() {
-        d[i][0] = i
-    }
-
-    for j in 1..=b.len() {
-        d[0][j] = j
-    }
-
-    for j in 1..=b.len() {
-        for i in 1..=a.len() {
-            let cost = if a[i-1] == b[j-1] {
-                0
-            } else {
-                1
-            };
-            d[i][j] = min(min(d[i - 1][j] + 1, d[i][j - 1] + 1), d[i - 1][j - 1] + cost);
-        }
-    }
-
-    d[a.len()][b.len()]
-}
-
-fn get_closest(arr: &'static [&str], name: &str) -> Option<usize> {
-    let mut closest = (None, usize::MAX);
-    for (i, other) in arr.iter().enumerate().filter(|(_, &e)| e != name) {
-        let dist = distance(name, other);
-        if dist < closest.1 && dist < std::cmp::min(name.len(), other.len()) {
-            closest = (Some(i), dist);
-        }
-    }
-    closest.0
 }
 
 pub async fn handle_set_city(
+    db: Arc<Database>,
     bot: Bot,
     dialogue: MyDialogue,
     msg: Message,
@@ -140,22 +95,58 @@ pub async fn handle_set_city(
     state: State,
 ) -> anyhow::Result<()> {
     let text = msg.text().context("no text in message")?;
-    match get_closest(&CITIES, text) {
-        Some(city) => {
-            bot.send_message(msg.chat.id, format!("Ваш город: {}?", CITIES[city])).await?;
+
+    match text {
+        "Верно" => {
+            if profile.city.is_none() {
+                bail!("br moment")
+            }
+            next_state(dialogue, msg.chat, state, profile, bot, db).await?;
         }
-        None => {
-            bot.send_message(msg.chat.id, "Попробуйте ещё раз.").await?;
+        "Список городов" => {
+            let cities: String = crate::cities::CITIES
+                .iter()
+                .map(|c| format!("{}\n", c[0]))
+                .collect();
+
+            bot.send_message(msg.chat.id, cities).await?;
         }
+        _ => match crate::cities::find_city(text) {
+            Some((id, name)) => {
+                profile.city = Some(id as i16);
+                dialogue.update(State::SetCity(profile)).await?;
+
+                let keyboard = vec![vec![
+                    KeyboardButton::new("Верно"),
+                    KeyboardButton::new("Список городов"),
+                ]];
+                let keyboard_markup =
+                    KeyboardMarkup::new(keyboard).resize_keyboard(true);
+                bot.send_message(msg.chat.id, format!("Ваш город - {}?", name))
+                    .reply_markup(keyboard_markup)
+                    .await?;
+            }
+            None => {
+                let keyboard =
+                    vec![vec![KeyboardButton::new("Список городов")]];
+                let keyboard_markup =
+                    KeyboardMarkup::new(keyboard).resize_keyboard(true);
+                bot.send_message(
+                    msg.chat.id,
+                    "Не удалось найти город! Попробуйте ещё раз или \
+                     посмотрите список доступных.",
+                )
+                .reply_markup(keyboard_markup)
+                .await?;
+            }
+        },
     }
-    profile.city = Some(1);
-    next_state(dialogue, &state, profile).await?;
-    print_next_state(&state, bot, msg.chat).await?;
 
     Ok(())
 }
 
 pub async fn handle_set_partner_city(
+    db: Arc<Database>,
     bot: Bot,
     dialogue: MyDialogue,
     msg: Message,
@@ -172,13 +163,13 @@ pub async fn handle_set_partner_city(
     };
 
     profile.same_partner_city = Some(same_partner_city);
-    next_state(dialogue, &state, profile).await?;
-    print_next_state(&state, bot, msg.chat).await?;
+    next_state(dialogue, msg.chat, state, profile, bot, db).await?;
 
     Ok(())
 }
 
 pub async fn handle_set_name(
+    db: Arc<Database>,
     bot: Bot,
     dialogue: MyDialogue,
     msg: Message,
@@ -188,17 +179,17 @@ pub async fn handle_set_name(
     match msg.text() {
         Some(text) if (3..=30).contains(&text.len()) => {
             profile.name = Some(text.to_owned());
-            next_state(dialogue, &state, profile).await?;
+            next_state(dialogue, msg.chat, state, profile, bot, db).await?;
 
-            bot.send_message(
-                msg.chat.id,
-                format!(
-                    "Выбранное имя: {text}.\nЕго можно будет изменить позже \
-                     командой /setname"
-                ),
-            )
-            .await?;
-            print_next_state(&state, bot, msg.chat).await?;
+            // bot.send_message(
+            //     msg.chat.id,
+            //     format!(
+            //         "Выбранное имя: {text}.\nЕго можно будет изменить позже \
+            //          командой /setname"
+            //     ),
+            // )
+            // .await?;
+            // print_next_state(&state, bot, msg.chat).await?;
         }
         _ => {
             print_current_state(&state, bot, msg.chat).await?;
@@ -208,6 +199,7 @@ pub async fn handle_set_name(
 }
 
 pub async fn handle_set_gender(
+    db: Arc<Database>,
     bot: Bot,
     dialogue: MyDialogue,
     msg: Message,
@@ -224,13 +216,13 @@ pub async fn handle_set_gender(
     };
 
     profile.gender = Some(gender);
-    next_state(dialogue, &state, profile).await?;
-    print_next_state(&state, bot, msg.chat).await?;
+    next_state(dialogue, msg.chat, state, profile, bot, db).await?;
 
     Ok(())
 }
 
 pub async fn handle_set_partner_gender(
+    db: Arc<Database>,
     bot: Bot,
     dialogue: MyDialogue,
     msg: Message,
@@ -248,13 +240,13 @@ pub async fn handle_set_partner_gender(
     };
 
     profile.partner_gender = gender;
-    next_state(dialogue, &state, profile).await?;
-    print_next_state(&state, bot, msg.chat).await?;
+    next_state(dialogue, msg.chat, state, profile, bot, db).await?;
 
     Ok(())
 }
 
 pub async fn handle_set_graduation_year(
+    db: Arc<Database>,
     bot: Bot,
     dialogue: MyDialogue,
     msg: Message,
@@ -270,32 +262,27 @@ pub async fn handle_set_graduation_year(
         return Ok(())
     };
 
-    let date = chrono::Local::now();
-
-    let graduation_year = if date.month() < 9 {
-        date.year() + (11 - grade)
-    } else {
-        date.year() + (11 - grade) + 1
-    };
+    let graduation_year = utils::graduation_year_from_grade(grade)?;
 
     profile.graduation_year = Some(graduation_year as i16);
-    next_state(dialogue, &state, profile).await?;
+    next_state(dialogue, msg.chat, state, profile, bot, db).await?;
 
-    bot.send_message(
-        msg.chat.id,
-        format!(
-            "Хорошо, сейчас вы в {grade} классе и закончите школу в \
-             {graduation_year} году.\nИзменить это можно командой /setgrade"
-        ),
-    )
-    .reply_markup(KeyboardRemove::new())
-    .await?;
-    print_next_state(&state, bot, msg.chat).await?;
+    // bot.send_message(
+    //     msg.chat.id,
+    //     format!(
+    //         "Хорошо, сейчас вы в {grade} классе и закончите школу в \
+    //          {graduation_year} году.\nИзменить это можно командой /setgrade"
+    //     ),
+    // )
+    // .reply_markup(KeyboardRemove::new())
+    // .await?;
+    // print_next_state(&state, bot, msg.chat).await?;
 
     Ok(())
 }
 
 pub async fn handle_set_subjects_callback(
+    db: Arc<Database>,
     bot: Bot,
     dialogue: MyDialogue,
     mut profile: NewProfile,
@@ -331,8 +318,8 @@ pub async fn handle_set_subjects_callback(
         )
         .await?;
 
-        next_state(dialogue, &state, profile).await?;
-        print_next_state(&state, bot, msg.chat).await?;
+        next_state(dialogue, msg.chat, state, profile, bot, db).await?;
+        // print_next_state(&state, bot, msg.chat).await?;
     } else {
         let subjects = profile.subjects.unwrap_or_default()
             ^ Subjects::from_bits(text.parse()?).context("subjects error")?;
@@ -349,6 +336,7 @@ pub async fn handle_set_subjects_callback(
 }
 
 pub async fn handle_set_partner_subjects_callback(
+    db: Arc<Database>,
     bot: Bot,
     dialogue: MyDialogue,
     mut profile: NewProfile,
@@ -389,8 +377,8 @@ pub async fn handle_set_partner_subjects_callback(
         )
         .await?;
 
-        next_state(dialogue, &state, profile).await?;
-        print_next_state(&state, bot, msg.chat).await?;
+        next_state(dialogue, msg.chat, state, profile, bot, db).await?;
+        // print_next_state(&state, bot, msg.chat).await?;
     } else {
         let subjects = profile.partner_subjects.unwrap_or_default()
             ^ Subjects::from_bits(text.parse()?).context("subjects error")?;
@@ -416,22 +404,10 @@ pub async fn handle_set_about(
 ) -> anyhow::Result<()> {
     match msg.text() {
         Some(text) if (1..=1000).contains(&text.len()) => {
-            dialogue.exit().await?;
             profile.about = Some(text.to_owned());
-            let profile = Profile::try_from(profile)?;
-            db.create_user(
-                msg.chat.id.0,
-                profile.name,
-                profile.about,
-                profile.gender,
-                profile.partner_gender,
-                profile.graduation_year,
-                profile.subjects.0 .0,
-                profile.partner_subjects.bits(),
-                profile.city,
-                profile.same_partner_city,
-            )
-            .await?;
+
+            next_state(dialogue, msg.chat, state, profile, bot, db).await?;
+            // print_next_state(&state, bot, msg.chat).await?;
         }
         _ => {
             print_current_state(&state, bot, msg.chat).await?;
