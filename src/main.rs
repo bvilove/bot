@@ -28,8 +28,11 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
     tracing::info!("Starting bot...");
-    let bot = teloxide::Bot::from_env()
-        .throttle(Limits { messages_per_min_chat: 30, ..Default::default() });
+    let bot = teloxide::Bot::from_env().throttle(Limits {
+        messages_per_sec_chat: 2,
+        messages_per_min_chat: 120,
+        ..Default::default()
+    });
 
     let handler = dptree::entry()
         .enter_dialogue::<Update, InMemStorage<State>, State>()
@@ -81,7 +84,9 @@ async fn main() -> anyhow::Result<()> {
                 .branch(
                     dptree::case![State::SetPartnerSubjects(a)]
                         .endpoint(handle_set_partner_subjects_callback),
-                ),
+                )
+                .branch(dptree::entry())
+                .endpoint(datings::handle_dating_callback),
         );
 
     let database = db::Database::new().await?;
@@ -235,7 +240,7 @@ async fn answer(
                 .await?;
         }
         Command::Recommend => {
-            datings::send_recommendation(bot, msg.chat, db).await?;
+            datings::send_recommendation(&bot, &db, msg.chat.id).await?;
         }
     }
 

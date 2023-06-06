@@ -88,8 +88,12 @@ impl Database {
         Ok(())
     }
 
-    pub async fn _get_user_info(&self, id: i64) -> Result<users::Model> {
+    pub async fn get_user(&self, id: i64) -> Result<users::Model> {
         Users::find_by_id(id).one(&self.conn).await?.context("user not found")
+    }
+
+    pub async fn get_dating(&self, id: i64) -> Result<datings::Model> {
+        Datings::find_by_id(id).one(&self.conn).await?.context("user not found")
     }
 
     pub async fn update_last_activity(&self, id: i64) -> Result<()> {
@@ -104,11 +108,19 @@ impl Database {
         Ok(())
     }
 
-    pub async fn get_partner(&self, user_id: i64) -> Result<users::Model> {
+    pub async fn get_partner(
+        &self,
+        user_id: i64,
+    ) -> Result<Option<(i64, users::Model)>> {
         let now_utc = Utc::now();
-        let week_ago_utc = now_utc - Duration::weeks(1);
-        let week_ago_naive = NaiveDateTime::from_timestamp_micros(
-            week_ago_utc.timestamp_micros(),
+        let datings_cooldown_utc = now_utc - Duration::seconds(5);
+        let datings_cooldown_naive = NaiveDateTime::from_timestamp_micros(
+            datings_cooldown_utc.timestamp_micros(),
+        )
+        .expect("naive time must be created");
+        let active_cooldown_utc = now_utc - Duration::weeks(2);
+        let active_cooldown_naive = NaiveDateTime::from_timestamp_micros(
+            active_cooldown_utc.timestamp_micros(),
         )
         .expect("naive time must be created");
 
@@ -123,13 +135,27 @@ impl Database {
         // TODO: fix this
         let user_id_clone = user.id;
 
+        let last_unresponded_dating = Datings::find()
+            .filter(datings::Column::InitiatorId.eq(user_id))
+            .filter(datings::Column::InitiatorReaction.is_null())
+            .one(&self.conn)
+            .await?;
+
+        if let Some(dating) = last_unresponded_dating {
+            let partner = Users::find_by_id(dating.partner_id)
+                .one(&self.conn)
+                .await?
+                .context("partner not found")?;
+            return Ok(Some((dating.id, partner)));
+        }
+
         let mut partner_query = Users::find()
             // Don't recommend user to himself
             .filter(users::Column::Id.ne(user_id))
             // Only recommend activated profiles
             .filter(users::Column::Active.eq(true))
             // Only recommend active users
-            .filter(users::Column::LastActivity.gt(week_ago_naive))
+            .filter(users::Column::LastActivity.gt(active_cooldown_naive))
             // Respect users's graduation delta preference
             .filter(users::Column::GraduationYear.between(
                 user.graduation_year - user.down_graduation_year_delta_pref,
@@ -196,7 +222,10 @@ impl Database {
                     .on_condition(move |_left, _right| {
                         datings::Column::InitiatorId
                             .eq(user_id_clone)
-                            .and(datings::Column::Time.gt(week_ago_naive))
+                            .and(
+                                datings::Column::Time
+                                    .gt(datings_cooldown_naive),
+                            )
                             .into_condition()
                     })
                     .into(),
@@ -237,19 +266,50 @@ impl Database {
 
         let txn = self.conn.begin().await?;
 
-        let partner =
-            partner_query.one(&txn).await?.context("partner not found")?;
+        let partner = partner_query.one(&txn).await?;
 
-        // Save dating
-        let dating = datings::ActiveModel {
-            initiator_id: ActiveValue::Set(user_id),
-            partner_id: ActiveValue::Set(partner.id),
-            ..Default::default()
-        };
-        Datings::insert(dating).exec(&txn).await?;
+        match partner {
+            Some(p) => {
+                // Save dating
+                let dating = datings::ActiveModel {
+                    initiator_id: ActiveValue::Set(user_id),
+                    partner_id: ActiveValue::Set(p.id),
+                    ..Default::default()
+                };
+                let dating_id =
+                    Datings::insert(dating).exec(&txn).await?.last_insert_id;
 
-        txn.commit().await?;
+                txn.commit().await?;
 
-        Ok(partner)
+                Ok(Some((dating_id, p)))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub async fn set_dating_initiator_reaction(
+        &self,
+        dating: i64,
+        reaction: bool,
+    ) -> Result<()> {
+        Datings::update_many()
+            .filter(datings::Column::Id.eq(dating))
+            .col_expr(datings::Column::InitiatorReaction, Expr::value(reaction))
+            .exec(&self.conn)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn set_dating_partner_reaction(
+        &self,
+        dating: i64,
+        reaction: bool,
+    ) -> Result<()> {
+        Datings::update_many()
+            .filter(datings::Column::Id.eq(dating))
+            .col_expr(datings::Column::PartnerReaction, Expr::value(reaction))
+            .exec(&self.conn)
+            .await?;
+        Ok(())
     }
 }
