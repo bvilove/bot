@@ -126,3 +126,12 @@ pub async fn request_set_about(bot: Bot, chat: Chat) -> anyhow::Result<()> {
     bot.send_message(chat.id, text::EDIT_ABOUT).await?;
     Ok(())
 }
+
+pub async fn request_set_photos(bot: Bot, chat: Chat) -> anyhow::Result<()> {
+    let keyboard = vec![vec![KeyboardButton::new("Без фото")]];
+    let keyboard_markup = KeyboardMarkup::new(keyboard).resize_keyboard(true);
+    bot.send_message(chat.id, text::REQUEST_SET_PHOTOS)
+        .reply_markup(keyboard_markup)
+        .await?;
+    Ok(())
+}

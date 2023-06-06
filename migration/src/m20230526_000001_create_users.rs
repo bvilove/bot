@@ -78,7 +78,7 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(0),
                     )
-                    .col(ColumnDef::new(Users::City).tiny_integer().not_null())
+                    .col(ColumnDef::new(Users::City).integer().not_null())
                     .col(
                         ColumnDef::new(Users::SameCityPref)
                             .boolean()
@@ -108,6 +108,7 @@ impl MigrationTrait for Migration {
                             .from(Images::Table, Images::UserId)
                             .to(Users::Table, Users::Id),
                     )
+                    .col(ColumnDef::new(Images::TelegramId).string().not_null())
                     .col(
                         ColumnDef::new(Images::Data)
                             .blob(BlobSize::Long)
@@ -218,6 +219,7 @@ enum Images {
     Table,
     Id,
     UserId,
+    TelegramId,
     Data,
 }
 

@@ -4,6 +4,7 @@ use anyhow::{bail, Context};
 use db::Database;
 use entities::sea_orm_active_enums::Gender;
 use teloxide::{
+    net::Download,
     prelude::*,
     types::{Chat, KeyboardButton, KeyboardMarkup},
 };
@@ -37,7 +38,7 @@ async fn next_state(
         SetCity(EditProfile { create_new: true, .. }) => SetPartnerCity(p),
         SetPartnerCity(EditProfile { create_new: true, .. }) => SetAbout(p),
         SetAbout(EditProfile { create_new: true, .. }) => {
-            let profile = Profile::try_from(p)?;
+            let profile = Profile::try_from(p.clone())?;
             db.create_user(
                 dialogue.chat_id().0,
                 profile.name,
@@ -52,7 +53,7 @@ async fn next_state(
             )
             .await?;
 
-            Start
+            SetPhotos(p)
         }
         Start => {
             dialogue.exit().await?;
@@ -69,7 +70,7 @@ async fn next_state(
     Ok(())
 }
 
-async fn print_current_state(
+pub async fn print_current_state(
     state: &State,
     bot: Bot,
     chat: Chat,
@@ -89,8 +90,8 @@ async fn print_current_state(
         SetCity(_) => request_set_city(bot, chat).await?,
         SetPartnerCity(_) => request_set_partner_city(bot, chat).await?,
         SetAbout(_) => request_set_about(bot, chat).await?,
-        Start => {}
-        // _ => anyhow::bail!("wrong state: {:?}", state),
+        SetPhotos(_) => request_set_photos(bot, chat).await?,
+        Start => {} // _ => anyhow::bail!("wrong state: {:?}", state),
     };
     Ok(())
 }
@@ -113,16 +114,13 @@ pub async fn handle_set_city(
             next_state(dialogue, msg.chat, state, profile, bot, db).await?;
         }
         "Список городов" => {
-            let cities: String = crate::cities::CITIES()
-                .iter()
-                .map(|c| format!("{}\n", c[0]))
-                .collect();
+            let cities: String = crate::cities::cities_list();
 
             bot.send_message(msg.chat.id, cities).await?;
         }
         _ => match crate::cities::find_city(text) {
-            Some((id, name)) => {
-                profile.city = Some(id as i16);
+            Some(id) => {
+                profile.city = Some(id);
                 dialogue.update(State::SetCity(profile)).await?;
 
                 let keyboard = vec![vec![
@@ -131,9 +129,12 @@ pub async fn handle_set_city(
                 ]];
                 let keyboard_markup =
                     KeyboardMarkup::new(keyboard).resize_keyboard(true);
-                bot.send_message(msg.chat.id, format!("Ваш город - {}?", name))
-                    .reply_markup(keyboard_markup)
-                    .await?;
+                bot.send_message(
+                    msg.chat.id,
+                    format!("Ваш город - {}?", crate::cities::format_city(id)?),
+                )
+                .reply_markup(keyboard_markup)
+                .await?;
             }
             None => {
                 let keyboard =
@@ -422,5 +423,55 @@ pub async fn handle_set_about(
             print_current_state(&state, bot, msg.chat).await?;
         }
     }
+    Ok(())
+}
+
+pub async fn handle_set_photos(
+    db: Arc<Database>,
+    bot: Bot,
+    dialogue: MyDialogue,
+    msg: Message,
+    mut profile: EditProfile,
+    state: State,
+) -> anyhow::Result<()> {
+    let Some(photo_sizes) = msg.photo() else {match msg.text() {
+        Some(text) if text == "Без фото" => {
+            db.clean_images(msg.chat.id.0).await?;
+            next_state(dialogue, msg.chat, state, profile, bot, db).await?;
+        },
+        Some(text) if text == "Сохранить фото" => {
+            next_state(dialogue, msg.chat, state, profile, bot, db).await?;
+        },
+        _ => {
+            print_current_state(&state, bot, msg.chat).await?;
+        }
+    };
+    return Ok(())};
+
+    if profile.photos_count == 0 {
+        db.clean_images(msg.chat.id.0).await?;
+    };
+
+    profile.photos_count += 1;
+
+    let photo = &photo_sizes[photo_sizes.len() - 1];
+    let photo_file = bot.get_file(photo.file.clone().id).await?;
+
+    let mut photo_buf = vec![0u8; photo_file.size as usize];
+    bot.download_file(&photo_file.path, &mut photo_buf).await?;
+
+    db.create_image(msg.chat.id.0, photo_file.id.clone(), photo_buf).await?;
+
+    let keyboard = vec![vec![KeyboardButton::new("Сохранить фото")]];
+    let keyboard_markup = KeyboardMarkup::new(keyboard).resize_keyboard(true);
+    bot.send_message(
+        msg.chat.id,
+        format!("Добавлено {} фото. Добавить ещё?", profile.photos_count),
+    )
+    .reply_markup(keyboard_markup)
+    .await?;
+
+    dialogue.update(State::SetPhotos(profile)).await?;
+
     Ok(())
 }

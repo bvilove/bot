@@ -1,36 +1,40 @@
-use std::sync::OnceLock;
+use anyhow::Context;
+use itertools::Itertools;
+use strsim::jaro_winkler;
 
-use simsearch::SimSearch;
+include!(concat!(env!("OUT_DIR"), "/citiesmap.rs"));
 
-macro_rules! lazy_cell {
-    ($name:tt, $t:ty, $init:expr) => {
-        #[allow(non_snake_case)]
-        pub fn $name() -> &'static $t {
-            static LOCK: OnceLock<$t> = OnceLock::new();
-            LOCK.get_or_init($init)
-        }
-    };
+pub fn find_city(query: &str) -> Option<i32> {
+    let best_city = CITIES
+        .entries()
+        .sorted_unstable_by(|(_, left), (_, right)| {
+            jaro_winkler(query, left).total_cmp(&jaro_winkler(query, right))
+        })
+        .rev()
+        .next()
+        .expect("there must be at least 1 city");
+    if jaro_winkler(best_city.1, query) > 0.15 {
+        Some(*best_city.0)
+    } else {
+        None
+    }
 }
 
-lazy_cell!(CITIES, Vec<Vec<&'static str>>, || {
-    vec![
-        vec!["Москва"],
-        vec!["Питербург", "Санкт-Питербург", "Ленинград"],
-        vec!["Мордовия", "Саранск"],
-    ]
-});
+pub fn _city_by_id(id: i32) -> anyhow::Result<&'static &'static str> {
+    CITIES.get(&id).context("city not found")
+}
 
-lazy_cell!(ENGINE, SimSearch<usize>, || {
-    let mut engine: SimSearch<usize> = SimSearch::new();
-    for (city_id, city) in CITIES().iter().enumerate() {
-        for (alias_id, city_alias) in city.iter().enumerate() {
-            engine.insert(city_id * 100 + alias_id, city_alias);
-        }
-    }
-    engine
-});
+pub fn cities_list() -> String {
+    CITIES.values().sorted_unstable().map(|c| format!("{}\n", c)).collect()
+}
 
-pub fn find_city(query: &str) -> Option<(usize, &str)> {
-    let results = ENGINE().search(query);
-    results.first().map(|r| (r / 100, CITIES()[r / 100][0]))
+pub fn format_city(id: i32) -> anyhow::Result<String> {
+    Ok(format!(
+        "{} ФО, {}, {}",
+        COUNTIES.get(&(id >> 16)).context("county not found")?,
+        SUBJECTS
+            .get(&((id >> 8) % 2i32.pow(8)))
+            .context("subject not found")?,
+        CITIES.get(&id).context("city not found")?,
+    ))
 }

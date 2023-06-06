@@ -24,3 +24,4 @@ pub const USER_CITY_CURRENT: &str = "Только в моём городе";
 pub const USER_CITY_ANY: &str = "По всей России";
 pub const EDIT_PARTNER_CITY: &str = "Где искать вашего абонента?";
 pub const EDIT_CITY: &str = "Напишите ваш город";
+pub const REQUEST_SET_PHOTOS: &str = "Отправьте парочку своих фото";

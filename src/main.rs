@@ -62,6 +62,10 @@ async fn main() -> anyhow::Result<()> {
                         .endpoint(handle_set_about),
                 )
                 .branch(
+                    dptree::case![State::SetPhotos(a)]
+                        .endpoint(handle_set_photos),
+                )
+                .branch(
                     dptree::entry()
                         .filter_command::<Command>()
                         .endpoint(answer),
@@ -133,6 +137,7 @@ macro_rules! make_profile {
         #[derive(Clone, Default, Debug)]
         pub struct EditProfile {
             create_new: bool,
+            photos_count: u8,
             $($element: Option<$ty>),*
         }
         impl TryFrom<EditProfile> for Profile {
@@ -142,6 +147,7 @@ macro_rules! make_profile {
                 match new {
                     EditProfile {
                         create_new: true,
+                        photos_count: 0,
                         $($element: Some($element)),*
                     } => Ok(Profile {
                         $($element),*
@@ -163,7 +169,7 @@ make_profile!(
     partner_subjects: Subjects,
     about: String,
     partner_gender: Option<Gender>,
-    city: i16,
+    city: i32,
     same_partner_city: bool,
 );
 
@@ -180,6 +186,7 @@ pub enum State {
     SetCity(EditProfile),
     SetPartnerCity(EditProfile),
     SetAbout(EditProfile),
+    SetPhotos(EditProfile),
 }
 
 #[derive(Debug, BotCommands, Clone)]
@@ -207,11 +214,12 @@ async fn answer(
 ) -> anyhow::Result<()> {
     match cmd {
         Command::NewProfile => {
-            dialogue.update(State::SetName(EditProfile {
+            let state = State::SetName(EditProfile {
                 create_new: true,
                 ..Default::default()
-            })).await?;
-            request::request_set_name(bot, msg.chat).await?;
+            });
+            handle::print_current_state(&state, bot, msg.chat).await?;
+            dialogue.update(state).await?;
         }
         Command::EditProfile => {
             // if get_anketa(msg.chat.id.0).await?.is_some() {

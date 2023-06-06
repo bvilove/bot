@@ -27,7 +27,7 @@ impl Database {
         graduation_year: i16,
         subjects: i64,
         subjects_prefs: i64,
-        city: i16,
+        city: i32,
         same_city_pref: bool,
     ) -> Result<()> {
         let user = users::ActiveModel {
@@ -47,17 +47,44 @@ impl Database {
         Ok(())
     }
 
-    pub async fn _create_image(
+    pub async fn get_images(&self, user_id: i64) -> Result<Vec<String>> {
+        #[derive(FromQueryResult)]
+        struct ImageTelegramId {
+            telegram_id: String,
+        }
+        Ok(images::Entity::find()
+            .filter(images::Column::UserId.eq(user_id))
+            .select_only()
+            .column(images::Column::TelegramId)
+            .into_model::<ImageTelegramId>()
+            .all(&self.conn)
+            .await?
+            .into_iter()
+            .map(|m| m.telegram_id)
+            .collect())
+    }
+
+    pub async fn create_image(
         &self,
         user_id: i64,
+        tg_id: String,
         data: Vec<u8>,
     ) -> Result<()> {
         let image = entities::images::ActiveModel {
-            data: ActiveValue::Set(data),
             user_id: ActiveValue::Set(user_id),
+            telegram_id: ActiveValue::Set(tg_id),
+            data: ActiveValue::Set(data),
             ..Default::default()
         };
         Images::insert(image).exec(&self.conn).await?;
+        Ok(())
+    }
+
+    pub async fn clean_images(&self, user_id: i64) -> Result<()> {
+        Images::delete_many()
+            .filter(images::Column::UserId.eq(user_id))
+            .exec(&self.conn)
+            .await?;
         Ok(())
     }
 
@@ -134,24 +161,25 @@ impl Database {
             .filter(
                 Condition::any()
                     .add(
-                        Expr::cust_with_exprs("$1 & $2", [
-                            users::Column::SubjectsPrefs
-                                .into_expr()
-                                .cast_as(Alias::new("bit(64)")),
-                            Expr::value(user.subjects)
-                                .cast_as(Alias::new("bit(64)")),
-                        ])
+                        Expr::cust_with_exprs(
+                            "$1 & $2",
+                            [
+                                users::Column::SubjectsPrefs
+                                    .into_expr()
+                                    .cast_as(Alias::new("bit(64)")),
+                                Expr::value(user.subjects)
+                                    .cast_as(Alias::new("bit(64)")),
+                            ],
+                        )
                         .ne(Expr::value(0i64).cast_as(Alias::new("bit(64)"))),
                     )
                     .add(users::Column::SubjectsPrefs.eq(0i64)),
             )
             // Respect partner's gender preference
             .filter(
-                Condition::any()
-                    .add(users::Column::GenderPref.is_null())
-                    .add(
-                        users::Column::GenderPref.eq(Some(user.gender.clone())),
-                    ),
+                Condition::any().add(users::Column::GenderPref.is_null()).add(
+                    users::Column::GenderPref.eq(Some(user.gender.clone())),
+                ),
             )
             // Respect partner's city preference
             .filter(
@@ -181,13 +209,16 @@ impl Database {
         // Respect user's subject preference
         if user.subjects_prefs != 0 {
             partner_query = partner_query.filter(
-                Expr::cust_with_exprs("$1 & $2", [
-                    users::Column::Subjects
-                        .into_expr()
-                        .cast_as(Alias::new("bit(64)")),
-                    Expr::value(user.subjects_prefs)
-                        .cast_as(Alias::new("bit(64)")),
-                ])
+                Expr::cust_with_exprs(
+                    "$1 & $2",
+                    [
+                        users::Column::Subjects
+                            .into_expr()
+                            .cast_as(Alias::new("bit(64)")),
+                        Expr::value(user.subjects_prefs)
+                            .cast_as(Alias::new("bit(64)")),
+                    ],
+                )
                 .ne(Expr::value(0i64).cast_as(Alias::new("bit(64)"))),
             );
         }
