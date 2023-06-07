@@ -7,7 +7,7 @@ use teloxide::{
     adaptors::{throttle::Limits, Throttle},
     dispatching::dialogue::InMemStorage,
     prelude::*,
-    utils::command::BotCommands,
+    utils::command::BotCommands, RequestError,
 };
 
 mod cities;
@@ -20,6 +20,14 @@ mod utils;
 
 type Bot = Throttle<teloxide::Bot>;
 type MyDialogue = Dialogue<State, InMemStorage<State>>;
+
+#[derive(thiserror::Error, Debug)]
+pub enum AppError {
+    #[error(transparent)]
+    Telegram(#[from] RequestError),
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

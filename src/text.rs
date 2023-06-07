@@ -1,4 +1,4 @@
-pub const REQUEST_NAME: &str = "Как вас зовут?";
+pub const REQUEST_NAME: &str = "Как вас называть?";
 
 pub const REQUEST_GENDER: &str = "Теперь выберите ваш пол";
 pub const GENDER_MALE: &str = "Я парень";
@@ -15,7 +15,8 @@ pub const EDIT_SUBJECTS: &str = "Какие предметы вы ботаете
 pub const EDIT_PARTNER_SUBJECTS: &str =
     "Выберите предметы, хотя бы один из которых должен ботать тот, кого вы \
      ищете. Нажмите на предмет, чтобы добавить или убрать его.";
-pub const EDIT_ABOUT: &str = "Немного расскажите о себе";
+pub const EDIT_ABOUT: &str =
+    "Расскажите о себе: чем занимаетесь, кого хотите найти.";
 pub const SUBJECTS_CONTINUE: &str = "Продолжить";
 pub const SUBJECTS_PARTNER_EMPTY: &str = "Не важно";
 pub const SUBJECTS_USER_EMPTY: &str = "Никакие";

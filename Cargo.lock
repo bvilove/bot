@@ -1230,6 +1230,7 @@ dependencies = [
  "strsim",
  "strum",
  "teloxide",
+ "thiserror",
  "tokio",
  "tracing",
  "tracing-subscriber",

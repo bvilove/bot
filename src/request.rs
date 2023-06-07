@@ -1,5 +1,4 @@
 use anyhow::Context;
-use itertools::Itertools;
 use teloxide::{
     prelude::*,
     types::{Chat, ChatKind, KeyboardButton, KeyboardMarkup, KeyboardRemove},

@@ -8,9 +8,11 @@ use teloxide::{
         InlineKeyboardButton, InlineKeyboardMarkup, InputFile, InputMedia,
         InputMediaPhoto, KeyboardRemove, MessageId,
     },
+    ApiError, RequestError,
 };
+use tracing::*;
 
-use crate::{db::Database, Bot, DatingPurpose};
+use crate::{db::Database, Bot, DatingPurpose, EditProfile};
 
 fn format_user(user: &entities::users::Model) -> anyhow::Result<String> {
     let gender_emoji = match user.gender {
@@ -41,7 +43,7 @@ fn format_user(user: &entities::users::Model) -> anyhow::Result<String> {
     let city = crate::cities::format_city(user.city)?;
 
     Ok(format!(
-        "{gender_emoji} {}, {grade} класс.\n🔎 Интересует: {purpose}\n📚 {subjects}.\n🧭 {city}.\n\n{}",
+        "{gender_emoji} {}, {grade} класс.\n🔎 Интересует: {purpose}.\n📚 {subjects}.\n🧭 {city}.\n\n{}",
         user.name, user.about
     ))
 }
@@ -74,11 +76,19 @@ pub async fn send_recommendation(
         Some((dating, partner)) => {
             // Clean buttons of old message with this dating if it exist
             if let Some(msg) = dating.initiator_msg_id {
-                bot.edit_message_reply_markup(
-                    ChatId(dating.initiator_id),
-                    MessageId(msg),
-                )
-                .await?;
+                match bot
+                    .edit_message_reply_markup(
+                        ChatId(dating.initiator_id),
+                        MessageId(msg),
+                    )
+                    .await
+                {
+                    Err(RequestError::Api(ApiError::MessageToEditNotFound)) => {
+                        warn!("message to edit not found")
+                    }
+                    Err(e) => return Err(e.into()),
+                    _ => {}
+                }
             }
 
             send_user_photos(bot, db, partner.id, chat.0).await?;
@@ -139,7 +149,23 @@ pub async fn send_like(
     let user_info = format_user(&user)?;
     let like_msg = format!("Кому то понравилась твоя анкета:\n\n{user_info}");
 
-    send_user_photos(&bot, &db, dating.initiator_id, dating.partner_id).await?;
+    match send_user_photos(&bot, &db, dating.initiator_id, dating.partner_id)
+        .await
+    {
+        Err(crate::AppError::Telegram(RequestError::Api(
+            ApiError::BotBlocked,
+        ))) => {
+            warn!("bot was blocked");
+            db.create_or_update_user(EditProfile {
+                active: Some(false),
+                ..EditProfile::new(dating.partner_id)
+            })
+            .await?;
+            return Ok(());
+        }
+        Err(e) => return Err(e.into()),
+        Ok(_) => {}
+    }
 
     let keyboard = vec![vec![
         InlineKeyboardButton::callback("💔", format!("💔{}", dating.id)),
@@ -147,9 +173,23 @@ pub async fn send_like(
     ]];
     let keyboard_markup = InlineKeyboardMarkup::new(keyboard);
 
-    bot.send_message(ChatId(dating.partner_id), like_msg)
+    match bot
+        .send_message(ChatId(dating.partner_id), like_msg)
         .reply_markup(keyboard_markup)
-        .await?;
+        .await
+    {
+        Err(RequestError::Api(ApiError::BotBlocked)) => {
+            warn!("bot was blocked");
+            db.create_or_update_user(EditProfile {
+                active: Some(false),
+                ..EditProfile::new(dating.partner_id)
+            })
+            .await?;
+            return Ok(());
+        }
+        Err(e) => return Err(e.into()),
+        Ok(_) => {}
+    }
 
     Ok(())
 }
@@ -226,7 +266,7 @@ async fn send_user_photos(
     db: &Arc<Database>,
     user: i64,
     chat: i64,
-) -> anyhow::Result<()> {
+) -> std::result::Result<(), crate::AppError> {
     let user_images = db.get_images(user).await?;
 
     if !user_images.is_empty() {
