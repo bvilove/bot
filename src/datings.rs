@@ -41,7 +41,7 @@ fn format_user(user: &entities::users::Model) -> anyhow::Result<String> {
     let city = crate::cities::format_city(user.city)?;
 
     Ok(format!(
-        "{gender_emoji} {}, {grade} класс.\nИщет:{purpose}\n📚 {subjects}.\n🧭 {city}.\n\n{}",
+        "{gender_emoji} {}, {grade} класс.\n🔎 Интересует: {purpose}\n📚 {subjects}.\n🧭 {city}.\n\n{}",
         user.name, user.about
     ))
 }

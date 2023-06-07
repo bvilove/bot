@@ -82,7 +82,7 @@ pub async fn print_current_state(
         SetName(_) => request_set_name(bot, chat).await?,
         SetGender(_) => request_set_gender(bot, chat).await?,
         SetGenderFilter(_) => request_set_gender_filter(bot, chat).await?,
-        SetGraduationYear(_) => request_set_graduation_year(bot, chat).await?,
+        SetGraduationYear(_) => request_set_grade(bot, chat).await?,
         SetSubjects(_) => request_set_subjects(bot, chat).await?,
         SetSubjectsFilter(_) => request_set_subjects_filter(bot, chat).await?,
         SetDatingPurpose(_) => request_set_dating_purpose(bot, chat).await?,
@@ -261,7 +261,7 @@ pub async fn handle_set_partner_gender(
     Ok(())
 }
 
-pub async fn handle_set_graduation_year(
+pub async fn handle_set_grade(
     db: Arc<Database>,
     bot: Bot,
     dialogue: MyDialogue,
@@ -277,6 +277,11 @@ pub async fn handle_set_graduation_year(
         print_current_state(&state, profile, bot, msg.chat).await?;
         return Ok(())
     };
+
+    if !(1..=11).contains(&grade) {
+        print_current_state(&state, profile, bot, msg.chat).await?;
+        return Ok(());
+    }
 
     let graduation_year = utils::graduation_year_from_grade(grade)?;
 
@@ -404,12 +409,12 @@ pub async fn handle_set_subjects_filter_callback(
         bot.edit_message_reply_markup(msg.chat.id, msg.id)
             .reply_markup(utils::make_subjects_keyboard(
                 subjects_filter,
-                utils::SubjectsKeyboardType::User,
+                utils::SubjectsKeyboardType::Partner,
             ))
             .await?;
 
         profile.subjects_filter = Some(subjects_filter.bits());
-        dialogue.update(State::SetSubjects(profile)).await?;
+        dialogue.update(State::SetSubjectsFilter(profile)).await?;
     }
     Ok(())
 }

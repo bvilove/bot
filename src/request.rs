@@ -103,17 +103,17 @@ pub async fn request_set_gender_filter(
     Ok(())
 }
 
-pub async fn request_set_graduation_year(
+pub async fn request_set_grade(
     bot: Bot,
     chat: Chat,
 ) -> anyhow::Result<()> {
-    let keyboard =
-        (6..=11).map(|n| KeyboardButton::new(n.to_string())).chunks(3);
-    let keyboard_markup =
-        KeyboardMarkup::new(keyboard.into_iter()).resize_keyboard(true);
+    // let keyboard =
+    //     (6..=11).map(|n| KeyboardButton::new(n.to_string())).chunks(3);
+    // let keyboard_markup =
+    //     KeyboardMarkup::new(keyboard.into_iter()).resize_keyboard(true);
 
     bot.send_message(chat.id, text::REQUEST_GRADE)
-        .reply_markup(keyboard_markup)
+        .reply_markup(KeyboardRemove::new())
         .await?;
     Ok(())
 }

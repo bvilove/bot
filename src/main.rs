@@ -51,7 +51,7 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .branch(
                     dptree::case![State::SetGraduationYear(a)]
-                        .endpoint(handle_set_graduation_year),
+                        .endpoint(handle_set_grade),
                 )
                 .branch(
                     dptree::case![State::SetCity(a)].endpoint(handle_set_city),
