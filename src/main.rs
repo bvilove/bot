@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bitflags::bitflags;
 use db::Database;
-use entities::sea_orm_active_enums::Gender;
+use entities::sea_orm_active_enums::{Gender, LocationFilter};
 use teloxide::{
     adaptors::{throttle::Limits, Throttle},
     dispatching::dialogue::InMemStorage,
@@ -46,7 +46,7 @@ async fn main() -> anyhow::Result<()> {
                         .endpoint(handle_set_gender),
                 )
                 .branch(
-                    dptree::case![State::SetPartnerGender(a)]
+                    dptree::case![State::SetGenderFilter(a)]
                         .endpoint(handle_set_partner_gender),
                 )
                 .branch(
@@ -57,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
                     dptree::case![State::SetCity(a)].endpoint(handle_set_city),
                 )
                 .branch(
-                    dptree::case![State::SetPartnerCity(a)]
+                    dptree::case![State::SetLocationFilter(a)]
                         .endpoint(handle_set_partner_city),
                 )
                 .branch(
@@ -82,8 +82,12 @@ async fn main() -> anyhow::Result<()> {
                         .endpoint(handle_set_subjects_callback),
                 )
                 .branch(
-                    dptree::case![State::SetPartnerSubjects(a)]
-                        .endpoint(handle_set_partner_subjects_callback),
+                    dptree::case![State::SetSubjectsFilter(a)]
+                        .endpoint(handle_set_subjects_filter_callback),
+                )
+                .branch(
+                    dptree::case![State::SetDatingPurpose(a)]
+                        .endpoint(handle_set_dating_purpose_callback),
                 )
                 .branch(dptree::entry())
                 .endpoint(datings::handle_dating_callback),
@@ -105,7 +109,7 @@ async fn main() -> anyhow::Result<()> {
 
 bitflags! {
     #[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Hash)]
-    pub struct Subjects: i64 {
+    pub struct Subjects: i32 {
         const Art = 1 << 0;
         const Astronomy = 1 << 1;
         const Biology = 1 << 2;
@@ -133,33 +137,43 @@ bitflags! {
     }
 }
 
+bitflags! {
+    #[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Hash)]
+    pub struct DatingPurpose: i16 {
+        const Friendship = 1 << 0;
+        const Studies = 1 << 1;
+        const Relationship = 1 << 2;
+    }
+}
+
 macro_rules! make_profile {
     ($($element:ident: $ty:ty),* $(,)?) => {
-        #[derive(Debug)]
-        pub struct Profile {
-            $($element: $ty),*
-        }
         #[derive(Clone, Default, Debug)]
         pub struct EditProfile {
+            id: i64,
             create_new: bool,
             photos_count: u8,
             $($element: Option<$ty>),*
         }
-        impl TryFrom<EditProfile> for Profile {
-            type Error = anyhow::Error;
-
-            fn try_from(new: EditProfile) -> Result<Self, Self::Error> {
-                match new {
-                    EditProfile {
-                        create_new: true,
-                        photos_count: 0,
-                        $($element: Some($element)),*
-                    } => Ok(Profile {
-                        $($element),*
-                    }),
-                    _ => {
-                        anyhow::bail!("can't create Profile from NewProfile: {:?}", new)
-                    }
+        impl EditProfile {
+            pub fn new(id: i64) -> Self {
+                Self {
+                    id,
+                    create_new: true,
+                    photos_count: 0,
+                    name: None,
+                    gender: None,
+                    gender_filter: None,
+                    about: None,
+                    active: None,
+                    graduation_year: None,
+                    grade_up_filter: None,
+                    grade_down_filter: None,
+                    subjects: None,
+                    subjects_filter: None,
+                    dating_purpose: None,
+                    city: None,
+                    location_filter: None
                 }
             }
         }
@@ -169,13 +183,17 @@ macro_rules! make_profile {
 make_profile!(
     name: String,
     gender: Gender,
-    graduation_year: i16,
-    subjects: Subjects,
-    partner_subjects: Subjects,
+    gender_filter: Option<Gender>,
     about: String,
-    partner_gender: Option<Gender>,
+    active: bool,
+    graduation_year: i16,
+    grade_up_filter: i16,
+    grade_down_filter: i16,
+    subjects: i32,
+    subjects_filter: i32,
+    dating_purpose: i16,
     city: i32,
-    same_partner_city: bool,
+    location_filter: LocationFilter,
 );
 
 #[derive(Clone, Default, Debug)]
@@ -184,12 +202,13 @@ pub enum State {
     Start,
     SetName(EditProfile),
     SetGender(EditProfile),
-    SetPartnerGender(EditProfile),
+    SetGenderFilter(EditProfile),
     SetGraduationYear(EditProfile),
     SetSubjects(EditProfile),
-    SetPartnerSubjects(EditProfile),
+    SetSubjectsFilter(EditProfile),
+    SetDatingPurpose(EditProfile),
     SetCity(EditProfile),
-    SetPartnerCity(EditProfile),
+    SetLocationFilter(EditProfile),
     SetAbout(EditProfile),
     SetPhotos(EditProfile),
 }
@@ -219,11 +238,9 @@ async fn answer(
 ) -> anyhow::Result<()> {
     match cmd {
         Command::NewProfile => {
-            let state = State::SetName(EditProfile {
-                create_new: true,
-                ..Default::default()
-            });
-            handle::print_current_state(&state, bot, msg.chat).await?;
+            let profile = EditProfile::new(msg.chat.id.0);
+            let state = State::SetName(profile.clone());
+            handle::print_current_state(&state, profile, bot, msg.chat).await?;
             dialogue.update(state).await?;
         }
         Command::EditProfile => {

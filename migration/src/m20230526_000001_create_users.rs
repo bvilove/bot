@@ -17,6 +17,15 @@ impl MigrationTrait for Migration {
             .await?;
 
         manager
+            .create_type(
+                Type::create()
+                    .as_enum(LocationFilter::Table)
+                    .values(LocationFilter::iter().skip(1))
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
             .create_table(
                 Table::create()
                     .table(Users::Table)
@@ -26,17 +35,21 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(Users::Name).string().not_null())
+                    .col(ColumnDef::new(Users::Name).string_len(16).not_null())
                     .col(
                         ColumnDef::new(Users::Gender)
                             .enumeration(Gender::Table, Gender::iter().skip(1))
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(Users::GenderPref)
+                        ColumnDef::new(Users::GenderFilter)
                             .enumeration(Gender::Table, Gender::iter().skip(1)),
                     )
-                    .col(ColumnDef::new(Users::About).string().not_null())
+                    .col(
+                        ColumnDef::new(Users::About)
+                            .string_len(1024)
+                            .not_null(),
+                    )
                     .col(
                         ColumnDef::new(Users::Active)
                             .boolean()
@@ -55,35 +68,42 @@ impl MigrationTrait for Migration {
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(Users::UpGraduationYearDeltaPref)
+                        ColumnDef::new(Users::GradeUpFilter)
                             .tiny_integer()
                             .not_null()
                             .default(1),
                     )
                     .col(
-                        ColumnDef::new(Users::DownGraduationYearDeltaPref)
+                        ColumnDef::new(Users::GradeDownFilter)
                             .tiny_integer()
                             .not_null()
                             .default(1),
                     )
                     .col(
                         ColumnDef::new(Users::Subjects)
-                            .big_integer()
+                            .integer()
                             .not_null()
                             .default(0),
                     )
                     .col(
-                        ColumnDef::new(Users::SubjectsPrefs)
-                            .big_integer()
+                        ColumnDef::new(Users::SubjectsFilter)
+                            .integer()
                             .not_null()
                             .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(Users::DatingPurpose)
+                            .small_integer()
+                            .not_null(),
                     )
                     .col(ColumnDef::new(Users::City).integer().not_null())
                     .col(
-                        ColumnDef::new(Users::SameCityPref)
-                            .boolean()
-                            .not_null()
-                            .default(true),
+                        ColumnDef::new(Users::LocationFilter)
+                            .enumeration(
+                                LocationFilter::Table,
+                                LocationFilter::iter().skip(1),
+                            )
+                            .not_null(),
                     )
                     .to_owned(),
             )
@@ -95,7 +115,7 @@ impl MigrationTrait for Migration {
                     .table(Images::Table)
                     .col(
                         ColumnDef::new(Images::Id)
-                            .big_integer()
+                            .integer()
                             .not_null()
                             .auto_increment()
                             .primary_key(),
@@ -124,7 +144,7 @@ impl MigrationTrait for Migration {
                     .table(Datings::Table)
                     .col(
                         ColumnDef::new(Datings::Id)
-                            .big_integer()
+                            .integer()
                             .not_null()
                             .auto_increment()
                             .primary_key(),
@@ -149,6 +169,7 @@ impl MigrationTrait for Migration {
                             .from(Datings::Table, Datings::PartnerId)
                             .to(Users::Table, Users::Id),
                     )
+                    .col(ColumnDef::new(Datings::InitiatorMsgId).integer())
                     .col(
                         ColumnDef::new(Datings::Time)
                             .date_time()
@@ -182,7 +203,11 @@ impl MigrationTrait for Migration {
         manager
             .drop_table(Table::drop().table(Users::Table).to_owned())
             .await?;
+
         manager.drop_type(Type::drop().name(Gender::Table).to_owned()).await?;
+        manager
+            .drop_type(Type::drop().name(LocationFilter::Table).to_owned())
+            .await?;
 
         Ok(())
     }
@@ -195,23 +220,33 @@ enum Gender {
     Female,
 }
 
+#[derive(Iden, EnumIter)]
+enum LocationFilter {
+    Table,
+    SameCity,
+    SameSubject,
+    SameCounty,
+    SameCountry,
+}
+
 #[derive(Iden)]
 enum Users {
     Table,
     Id,
     Name,
     Gender,
-    GenderPref,
+    GenderFilter,
     About,
     Active,
     LastActivity,
     GraduationYear,
-    UpGraduationYearDeltaPref,
-    DownGraduationYearDeltaPref,
+    GradeUpFilter,
+    GradeDownFilter,
     Subjects,
-    SubjectsPrefs,
+    SubjectsFilter,
+    DatingPurpose,
     City,
-    SameCityPref,
+    LocationFilter,
 }
 
 #[derive(Iden)]
@@ -229,6 +264,7 @@ enum Datings {
     Id,
     InitiatorId,
     PartnerId,
+    InitiatorMsgId,
     Time,
     InitiatorReaction,
     PartnerReaction,

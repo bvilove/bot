@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
-use chrono::{prelude::*, Duration};
-use entities::{prelude::*, sea_orm_active_enums::*, *};
+use entities::{prelude::*, sea_orm_active_enums::LocationFilter, *};
 use migration::{Migrator, MigratorTrait};
 use sea_orm::{Database as SeaDatabase, DatabaseConnection, *};
 use sea_query::*;
@@ -17,31 +16,39 @@ impl Database {
         Ok(Self { conn })
     }
 
-    pub async fn create_user(
+    pub async fn create_or_update_user(
         &self,
-        id: i64,
-        name: String,
-        about: String,
-        gender: Gender,
-        gender_pref: Option<Gender>,
-        graduation_year: i16,
-        subjects: i64,
-        subjects_prefs: i64,
-        city: i32,
-        same_city_pref: bool,
+        profile: crate::EditProfile,
     ) -> Result<()> {
+        // TODO: update profile
+        if profile.name.is_none() {
+            return Ok(());
+        }
+
+        macro_rules! param {
+            ($param:ident) => {
+                match profile.$param {
+                    Some(p) => ActiveValue::Set(p),
+                    None => ActiveValue::NotSet,
+                }
+            };
+        }
         let user = users::ActiveModel {
-            id: ActiveValue::Set(id),
-            name: ActiveValue::Set(name),
-            about: ActiveValue::Set(about),
-            gender: ActiveValue::Set(gender),
-            gender_pref: ActiveValue::Set(gender_pref),
-            graduation_year: ActiveValue::Set(graduation_year),
-            subjects: ActiveValue::Set(subjects),
-            subjects_prefs: ActiveValue::Set(subjects_prefs),
-            city: ActiveValue::Set(city),
-            same_city_pref: ActiveValue::Set(same_city_pref),
-            ..Default::default()
+            id: ActiveValue::Unchanged(profile.id),
+            name: param!(name),
+            gender: param!(gender),
+            gender_filter: param!(gender_filter),
+            about: param!(about),
+            active: param!(active),
+            last_activity: ActiveValue::NotSet,
+            graduation_year: param!(graduation_year),
+            grade_up_filter: param!(grade_up_filter),
+            grade_down_filter: param!(grade_down_filter),
+            subjects: param!(subjects),
+            subjects_filter: param!(subjects_filter),
+            dating_purpose: param!(dating_purpose),
+            city: param!(city),
+            location_filter: param!(location_filter),
         };
         Users::insert(user).exec(&self.conn).await?;
         Ok(())
@@ -92,8 +99,11 @@ impl Database {
         Users::find_by_id(id).one(&self.conn).await?.context("user not found")
     }
 
-    pub async fn get_dating(&self, id: i64) -> Result<datings::Model> {
-        Datings::find_by_id(id).one(&self.conn).await?.context("user not found")
+    pub async fn get_dating(&self, id: i32) -> Result<datings::Model> {
+        Datings::find_by_id(id)
+            .one(&self.conn)
+            .await?
+            .context("dating not found")
     }
 
     pub async fn update_last_activity(&self, id: i64) -> Result<()> {
@@ -111,19 +121,7 @@ impl Database {
     pub async fn get_partner(
         &self,
         user_id: i64,
-    ) -> Result<Option<(i64, users::Model)>> {
-        let now_utc = Utc::now();
-        let datings_cooldown_utc = now_utc - Duration::seconds(5);
-        let datings_cooldown_naive = NaiveDateTime::from_timestamp_micros(
-            datings_cooldown_utc.timestamp_micros(),
-        )
-        .expect("naive time must be created");
-        let active_cooldown_utc = now_utc - Duration::weeks(2);
-        let active_cooldown_naive = NaiveDateTime::from_timestamp_micros(
-            active_cooldown_utc.timestamp_micros(),
-        )
-        .expect("naive time must be created");
-
+    ) -> Result<Option<(datings::Model, users::Model)>> {
         // Load dating initiator
         let user = Users::find_by_id(user_id)
             .one(&self.conn)
@@ -146,7 +144,7 @@ impl Database {
                 .one(&self.conn)
                 .await?
                 .context("partner not found")?;
-            return Ok(Some((dating.id, partner)));
+            return Ok(Some((dating, partner)));
         }
 
         let mut partner_query = Users::find()
@@ -155,17 +153,19 @@ impl Database {
             // Only recommend activated profiles
             .filter(users::Column::Active.eq(true))
             // Only recommend active users
-            .filter(users::Column::LastActivity.gt(active_cooldown_naive))
+            .filter(users::Column::LastActivity.into_expr().gt(
+                Expr::current_timestamp().sub(Expr::cust("interval '14 days'")),
+            ))
             // Respect users's graduation delta preference
             .filter(users::Column::GraduationYear.between(
-                user.graduation_year - user.down_graduation_year_delta_pref,
-                user.graduation_year + user.up_graduation_year_delta_pref,
+                user.graduation_year - user.grade_up_filter,
+                user.graduation_year + user.grade_down_filter,
             ))
             // Respect partner's graduation delta preference
             .filter(
                 users::Column::GraduationYear
                     .into_expr()
-                    .add(users::Column::UpGraduationYearDeltaPref.into_expr())
+                    .add(users::Column::GradeDownFilter.into_expr())
                     .binary(
                         BinOper::GreaterThanOrEqual,
                         Expr::value(user.graduation_year),
@@ -173,15 +173,30 @@ impl Database {
                     .and(
                         users::Column::GraduationYear
                             .into_expr()
-                            .sub(
-                                users::Column::DownGraduationYearDeltaPref
-                                    .into_expr(),
-                            )
+                            .sub(users::Column::GradeUpFilter.into_expr())
                             .binary(
                                 BinOper::SmallerThanOrEqual,
                                 Expr::value(user.graduation_year),
                             ),
                     ),
+            )
+            // Respect dating purpose
+            .filter(
+                Expr::cust_with_exprs(
+                    "$1 & $2",
+                    [
+                        users::Column::DatingPurpose
+                            .into_expr()
+                            .cast_as(Alias::new("integer"))
+                            .cast_as(Alias::new("bit(16)")),
+                        Expr::value(user.dating_purpose)
+                            .cast_as(Alias::new("integer"))
+                            .cast_as(Alias::new("bit(16)")),
+                    ],
+                )
+                .ne(Expr::value(0i16)
+                    .cast_as(Alias::new("integer"))
+                    .cast_as(Alias::new("bit(16)"))),
             )
             // Respect partner's subject preference
             .filter(
@@ -190,27 +205,64 @@ impl Database {
                         Expr::cust_with_exprs(
                             "$1 & $2",
                             [
-                                users::Column::SubjectsPrefs
+                                users::Column::SubjectsFilter
                                     .into_expr()
-                                    .cast_as(Alias::new("bit(64)")),
+                                    .cast_as(Alias::new("bit(32)")),
                                 Expr::value(user.subjects)
-                                    .cast_as(Alias::new("bit(64)")),
+                                    .cast_as(Alias::new("bit(32)")),
                             ],
                         )
-                        .ne(Expr::value(0i64).cast_as(Alias::new("bit(64)"))),
+                        .ne(Expr::value(0i32).cast_as(Alias::new("bit(32)"))),
                     )
-                    .add(users::Column::SubjectsPrefs.eq(0i64)),
+                    .add(users::Column::SubjectsFilter.eq(0i32)),
             )
             // Respect partner's gender preference
             .filter(
-                Condition::any().add(users::Column::GenderPref.is_null()).add(
-                    users::Column::GenderPref.eq(Some(user.gender.clone())),
-                ),
+                Condition::any()
+                    .add(users::Column::GenderFilter.is_null())
+                    .add(
+                        users::Column::GenderFilter
+                            .eq(Some(user.gender.clone())),
+                    ),
             )
-            // Respect partner's city preference
+            // Respect partner's location filter
             .filter(
                 Condition::any()
-                    .add(users::Column::SameCityPref.eq(false))
+                    // SameCountry
+                    .add(
+                        users::Column::LocationFilter
+                            .eq(LocationFilter::SameCountry),
+                    )
+                    // SameCounty
+                    .add(
+                        Condition::all()
+                            .add(
+                                users::Column::LocationFilter
+                                    .eq(LocationFilter::SameCounty),
+                            )
+                            .add(
+                                users::Column::City
+                                    .into_expr()
+                                    .binary(BinOper::RShift, 16)
+                                    .eq(user.city >> 16),
+                            ),
+                    )
+                    // SameSubject
+                    .add(
+                        Condition::all()
+                            .add(
+                                users::Column::LocationFilter
+                                    .eq(LocationFilter::SameSubject),
+                            )
+                            .add(
+                                users::Column::City
+                                    .into_expr()
+                                    .binary(BinOper::RShift, 8)
+                                    .binary(BinOper::Mod, 2i32.pow(8))
+                                    .eq((user.city >> 8) % 2i32.pow(8)),
+                            ),
+                    )
+                    // SameCity
                     .add(users::Column::City.eq(user.city)),
             )
             // Don't recommend the same partner more than once a week
@@ -223,8 +275,11 @@ impl Database {
                         datings::Column::InitiatorId
                             .eq(user_id_clone)
                             .and(
-                                datings::Column::Time
-                                    .gt(datings_cooldown_naive),
+                                datings::Column::Time.into_expr().gt(
+                                    Expr::current_timestamp().sub(Expr::cust(
+                                        "interval '5 seconds'",
+                                    )),
+                                ),
                             )
                             .into_condition()
                     })
@@ -236,36 +291,50 @@ impl Database {
             .order_by_desc(SimpleExpr::from(Func::random()));
 
         // Respect user's subject preference
-        if user.subjects_prefs != 0 {
+        if user.subjects_filter != 0 {
             partner_query = partner_query.filter(
                 Expr::cust_with_exprs(
                     "$1 & $2",
                     [
                         users::Column::Subjects
                             .into_expr()
-                            .cast_as(Alias::new("bit(64)")),
-                        Expr::value(user.subjects_prefs)
-                            .cast_as(Alias::new("bit(64)")),
+                            .cast_as(Alias::new("bit(32)")),
+                        Expr::value(user.subjects_filter)
+                            .cast_as(Alias::new("bit(32)")),
                     ],
                 )
-                .ne(Expr::value(0i64).cast_as(Alias::new("bit(64)"))),
+                .ne(Expr::value(0i32).cast_as(Alias::new("bit(32)"))),
             );
         }
 
         // Respect user's gender preference
-        if let Some(g) = &user.gender_pref {
+        if let Some(g) = &user.gender_filter {
             partner_query =
                 partner_query.filter(users::Column::Gender.eq(Some(g.clone())));
         }
 
-        // Respect user's city preference
-        if user.same_city_pref {
-            partner_query =
-                partner_query.filter(users::Column::City.eq(user.city));
-        }
+        // Respect user's location filter
+        partner_query = match user.location_filter {
+            LocationFilter::SameCountry => partner_query, // Just match everything
+            LocationFilter::SameCounty => partner_query.filter(
+                users::Column::City
+                    .into_expr()
+                    .binary(BinOper::RShift, 16)
+                    .eq(user.city >> 16),
+            ),
+            LocationFilter::SameSubject => partner_query.filter(
+                users::Column::City
+                    .into_expr()
+                    .binary(BinOper::RShift, 8)
+                    .binary(BinOper::Mod, 2i32.pow(8))
+                    .eq((user.city >> 8) % 2i32.pow(8)),
+            ),
+            LocationFilter::SameCity => partner_query, // SameCity will be matchned by partner location filter
+        };
 
         let txn = self.conn.begin().await?;
 
+        // println!("{}", partner_query.build(DatabaseBackend::Postgres));
         let partner = partner_query.one(&txn).await?;
 
         match partner {
@@ -279,9 +348,16 @@ impl Database {
                 let dating_id =
                     Datings::insert(dating).exec(&txn).await?.last_insert_id;
 
+                // TODO: 1 query
+                let saved_dating: datings::Model =
+                    Datings::find_by_id(dating_id)
+                        .one(&txn)
+                        .await?
+                        .context("dating not found")?;
+
                 txn.commit().await?;
 
-                Ok(Some((dating_id, p)))
+                Ok(Some((saved_dating, p)))
             }
             None => Ok(None),
         }
@@ -289,7 +365,7 @@ impl Database {
 
     pub async fn set_dating_initiator_reaction(
         &self,
-        dating: i64,
+        dating: i32,
         reaction: bool,
     ) -> Result<()> {
         Datings::update_many()
@@ -302,12 +378,25 @@ impl Database {
 
     pub async fn set_dating_partner_reaction(
         &self,
-        dating: i64,
+        dating: i32,
         reaction: bool,
     ) -> Result<()> {
         Datings::update_many()
             .filter(datings::Column::Id.eq(dating))
             .col_expr(datings::Column::PartnerReaction, Expr::value(reaction))
+            .exec(&self.conn)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn set_dating_initiator_msg(
+        &self,
+        dating: i32,
+        msg: i32,
+    ) -> Result<()> {
+        Datings::update_many()
+            .filter(datings::Column::Id.eq(dating))
+            .col_expr(datings::Column::InitiatorMsgId, Expr::value(msg))
             .exec(&self.conn)
             .await?;
         Ok(())

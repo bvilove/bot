@@ -1,7 +1,11 @@
-TODO:
+# Roadmap:
+
 - strum on Gender
 - edit messages
-- actually save profiles to DB
 - add edit commands
 - show profile command
-- select city
+
+# Licensing
+
+- All source code files licensed under SOME_LICENSE.
+- cities.csv, subjectes.csv and counties.csv are linensed under SOME_WIKIPEDIA.

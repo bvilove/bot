@@ -10,3 +10,15 @@ pub enum Gender {
     #[sea_orm(string_value = "male")]
     Male,
 }
+#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "location_filter")]
+pub enum LocationFilter {
+    #[sea_orm(string_value = "same_city")]
+    SameCity,
+    #[sea_orm(string_value = "same_country")]
+    SameCountry,
+    #[sea_orm(string_value = "same_county")]
+    SameCounty,
+    #[sea_orm(string_value = "same_subject")]
+    SameSubject,
+}

@@ -6,7 +6,7 @@ use sea_orm::entity::prelude::*;
 #[sea_orm(table_name = "images")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub id: i64,
+    pub id: i32,
     pub user_id: i64,
     pub telegram_id: String,
     #[sea_orm(column_type = "Binary(BlobSize::Blob(None))")]

@@ -47,3 +47,8 @@ serde = "1.0.163"
 debug = 2
 overflow-checks = true
 lto = "thin"
+
+[profile.release.package."*"]
+debug = 0
+strip = true
+overflow-checks = false

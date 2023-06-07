@@ -6,11 +6,11 @@ use teloxide::{
     prelude::*,
     types::{
         InlineKeyboardButton, InlineKeyboardMarkup, InputFile, InputMedia,
-        InputMediaPhoto,
+        InputMediaPhoto, KeyboardRemove, MessageId,
     },
 };
 
-use crate::{db::Database, Bot};
+use crate::{db::Database, Bot, DatingPurpose};
 
 fn format_user(user: &entities::users::Model) -> anyhow::Result<String> {
     let gender_emoji = match user.gender {
@@ -30,15 +30,39 @@ fn format_user(user: &entities::users::Model) -> anyhow::Result<String> {
         "Ничего не ботает".to_owned()
     };
 
+    let purpose = crate::utils::dating_purpose_list(
+        DatingPurpose::from_bits(user.dating_purpose)
+            .context("purpose must be created")?,
+    )?;
+
     let grade =
         crate::utils::grade_from_graduation_year(user.graduation_year.into())?;
 
     let city = crate::cities::format_city(user.city)?;
 
     Ok(format!(
-        "{gender_emoji} {}, {grade} класс.\n📚 {subjects}.\n🧭 {city}.\n\n{}",
+        "{gender_emoji} {}, {grade} класс.\nИщет:{purpose}\n📚 {subjects}.\n🧭 {city}.\n\n{}",
         user.name, user.about
     ))
+}
+
+pub async fn send_profile(
+    bot: &Bot,
+    db: &Arc<Database>,
+    id: i64,
+) -> anyhow::Result<()> {
+    let user = db.get_user(id).await?;
+
+    send_user_photos(bot, db, id, id).await?;
+
+    let user_str = format_user(&user)?;
+    let msg = format!("Так выглядит ваша анкета:\n\n{}", user_str);
+
+    bot.send_message(ChatId(id), msg)
+        .reply_markup(KeyboardRemove::new())
+        .await?;
+
+    Ok(())
 }
 
 pub async fn send_recommendation(
@@ -47,19 +71,38 @@ pub async fn send_recommendation(
     chat: ChatId,
 ) -> anyhow::Result<()> {
     match db.get_partner(chat.0).await? {
-        Some((dating_id, partner)) => {
+        Some((dating, partner)) => {
+            // Clean buttons of old message with this dating if it exist
+            if let Some(msg) = dating.initiator_msg_id {
+                bot.edit_message_reply_markup(
+                    ChatId(dating.initiator_id),
+                    MessageId(msg),
+                )
+                .await?;
+            }
+
             send_user_photos(bot, db, partner.id, chat.0).await?;
 
             let keyboard = vec![vec![
-                InlineKeyboardButton::callback("👎", format!("👎{dating_id}")),
+                InlineKeyboardButton::callback(
+                    "👎",
+                    format!("👎{}", dating.id),
+                ),
+                // TODO: like with message
                 // InlineKeyboardButton::callback("💌", format!("💌{dating_id}")),
-                InlineKeyboardButton::callback("👍", format!("👍{dating_id}")),
+                InlineKeyboardButton::callback(
+                    "👍",
+                    format!("👍{}", dating.id),
+                ),
             ]];
             let keyboard_markup = InlineKeyboardMarkup::new(keyboard);
 
-            bot.send_message(chat, format_user(&partner)?)
+            let sent_msg = bot
+                .send_message(chat, format_user(&partner)?)
                 .reply_markup(keyboard_markup)
                 .await?;
+
+            db.set_dating_initiator_msg(dating.id, sent_msg.id.0).await?;
         }
         None => {
             bot.send_message(chat, "Не удалось никого найти, попробуйте позднее или ослабьте фильтры")
@@ -119,7 +162,7 @@ pub async fn handle_dating_callback(
     let text = q.data.context("callback data not provided")?;
     let msg = q.message.context("callback without message")?;
 
-    let id = text.chars().skip(1).collect::<String>().parse::<i64>()?;
+    let id = text.chars().skip(1).collect::<String>().parse::<i32>()?;
     let dating = db.get_dating(id).await?;
 
     match text.chars().next().context("first chat not found")? {

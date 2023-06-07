@@ -2,7 +2,16 @@ use chrono::Datelike;
 use itertools::Itertools;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
 
-use crate::{text, Subjects};
+use crate::{text, DatingPurpose, Subjects};
+
+fn dating_purpose_name(purpose: DatingPurpose) -> anyhow::Result<&'static str> {
+    Ok(match purpose {
+        DatingPurpose::Friendship => "Дружба 🧑‍🤝‍🧑",
+        DatingPurpose::Studies => "Учёба 📚",
+        DatingPurpose::Relationship => "Отношения 💕",
+        _ => anyhow::bail!("unknown subject"),
+    })
+}
 
 fn subject_name(subject: Subjects) -> anyhow::Result<&'static str> {
     Ok(match subject {
@@ -42,6 +51,16 @@ pub fn subjects_list(subjects: Subjects) -> anyhow::Result<String> {
         .sorted_by(|first, other| {
             first.to_lowercase().cmp(&other.to_lowercase())
         })
+        .enumerate()
+        .map(|(i, s)| if i != 0 { format!(", {}", s) } else { s.to_owned() })
+        .collect())
+}
+
+pub fn dating_purpose_list(purpose: DatingPurpose) -> anyhow::Result<String> {
+    Ok(DatingPurpose::all()
+        .into_iter()
+        .filter(|s| purpose.contains(*s))
+        .map(|s| dating_purpose_name(s).unwrap())
         .enumerate()
         .map(|(i, s)| if i != 0 { format!(", {}", s) } else { s.to_owned() })
         .collect())
@@ -95,7 +114,36 @@ pub fn make_subjects_keyboard(
             }
         }
     };
-    keyboard.push(vec![InlineKeyboardButton::callback(text, text)]);
+    keyboard.push(vec![InlineKeyboardButton::callback(text, "continue")]);
+    InlineKeyboardMarkup::new(keyboard)
+}
+
+pub fn make_dating_purpose_keyboard(
+    selected: DatingPurpose,
+) -> InlineKeyboardMarkup {
+    let mut keyboard: Vec<Vec<_>> = DatingPurpose::all()
+        .into_iter()
+        .map(|purpose| {
+            InlineKeyboardButton::callback(
+                if selected.contains(purpose) {
+                    format!("✅ {}", dating_purpose_name(purpose).unwrap())
+                } else {
+                    dating_purpose_name(purpose).unwrap().to_owned()
+                },
+                purpose.bits().to_string(),
+            )
+        })
+        .chunks(3)
+        .into_iter()
+        .map(|row| row.collect())
+        .collect();
+
+    if selected != DatingPurpose::empty() {
+        keyboard.push(vec![InlineKeyboardButton::callback(
+            "Продолжить",
+            "continue",
+        )]);
+    }
     InlineKeyboardMarkup::new(keyboard)
 }
 

@@ -6,9 +6,10 @@ use sea_orm::entity::prelude::*;
 #[sea_orm(table_name = "datings")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub id: i64,
+    pub id: i32,
     pub initiator_id: i64,
     pub partner_id: i64,
+    pub initiator_msg_id: Option<i32>,
     pub time: DateTime,
     pub initiator_reaction: Option<bool>,
     pub partner_reaction: Option<bool>,
