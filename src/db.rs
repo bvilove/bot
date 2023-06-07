@@ -20,11 +20,6 @@ impl Database {
         &self,
         profile: crate::EditProfile,
     ) -> Result<()> {
-        // TODO: update profile
-        if profile.name.is_none() {
-            return Ok(());
-        }
-
         macro_rules! param {
             ($param:ident) => {
                 match profile.$param {
@@ -50,7 +45,13 @@ impl Database {
             city: param!(city),
             location_filter: param!(location_filter),
         };
-        Users::insert(user).exec(&self.conn).await?;
+
+        if Users::find_by_id(profile.id).one(&self.conn).await?.is_some() {
+            Users::update(user).exec(&self.conn).await?;
+        } else {
+            Users::insert(user).exec(&self.conn).await?;
+        }
+
         Ok(())
     }
 
