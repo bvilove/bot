@@ -196,7 +196,7 @@ pub async fn send_like(
             warn!("bot was blocked");
             db.create_or_update_user(EditProfile {
                 active: Some(false),
-                ..EditProfile::new(dating.partner_id)
+                ..EditProfile::new(dating.partner_id, true)
             })
             .await?;
             return Ok(());
@@ -220,7 +220,7 @@ pub async fn send_like(
             warn!("bot was blocked");
             db.create_or_update_user(EditProfile {
                 active: Some(false),
-                ..EditProfile::new(dating.partner_id)
+                ..EditProfile::new(dating.partner_id, true)
             })
             .await?;
             return Ok(());

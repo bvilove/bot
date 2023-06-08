@@ -104,6 +104,7 @@ async fn main() -> anyhow::Result<()> {
         .enter_dialogue::<Update, InMemStorage<State>, State>()
         .branch(
             Update::filter_message()
+                // edit profile
                 .branch(
                     dptree::case![State::SetName(a)].endpoint(handle_set_name),
                 )
@@ -134,6 +135,7 @@ async fn main() -> anyhow::Result<()> {
                     dptree::case![State::SetPhotos(a)]
                         .endpoint(handle_set_photos),
                 )
+                // others
                 .branch(
                     dptree::case![State::LikeMessage { dating }]
                         .endpoint(datings::handle_like_msg),
@@ -147,6 +149,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .branch(
             Update::filter_callback_query()
+                // edit profile
                 .branch(
                     dptree::case![State::SetSubjects(a)]
                         .endpoint(handle_set_subjects_callback),
@@ -159,7 +162,10 @@ async fn main() -> anyhow::Result<()> {
                     dptree::case![State::SetDatingPurpose(a)]
                         .endpoint(handle_set_dating_purpose_callback),
                 )
-                .branch(dptree::entry())
+                // others
+                .branch(
+                    dptree::case![State::Edit].endpoint(handle_edit_callback),
+                )
                 .endpoint(datings::handle_dating_callback),
         );
 
@@ -227,10 +233,10 @@ macro_rules! make_profile {
             $($element: Option<$ty>),*
         }
         impl EditProfile {
-            pub fn new(id: i64) -> Self {
+            pub fn new(id: i64, create_new: bool) -> Self {
                 Self {
                     id,
-                    create_new: true,
+                    create_new,
                     photos_count: 0,
                     ..Default::default()
                 }
@@ -284,6 +290,7 @@ pub enum State {
     LikeMessage {
         dating: entities::datings::Model,
     },
+    Edit,
 }
 
 #[derive(Debug, BotCommands, Clone)]
@@ -312,7 +319,7 @@ pub async fn start_profile_creation(
     msg: &Message,
     bot: &Bot,
 ) -> anyhow::Result<()> {
-    let profile = EditProfile::new(msg.chat.id.0);
+    let profile = EditProfile::new(msg.chat.id.0, true);
     let state = State::SetName(profile.clone());
     handle::print_current_state(&state, None, bot, &msg.chat).await?;
     dialogue.update(state).await?;
@@ -340,7 +347,14 @@ async fn answer(
                 start_profile_creation(&dialogue, &msg, &bot).await?;
             }
             Command::EditProfile => {
-                start_profile_creation(&dialogue, &msg, &bot).await?;
+                if db.get_user(msg.chat.id.0).await?.is_none() {
+                    bot.send_message(msg.chat.id, text::PLEASE_CREATE_PROFILE)
+                        .await?;
+                    return Ok(());
+                }
+
+                request::request_edit_profile(&bot, &msg.chat).await?;
+                dialogue.update(State::Edit).await?;
             }
             Command::Help => {
                 bot.send_message(

@@ -1,7 +1,11 @@
 use anyhow::Context;
+use itertools::Itertools;
 use teloxide::{
     prelude::*,
-    types::{Chat, ChatKind, KeyboardButton, KeyboardMarkup, KeyboardRemove},
+    types::{
+        Chat, ChatKind, InlineKeyboardButton, InlineKeyboardMarkup,
+        KeyboardButton, KeyboardMarkup, KeyboardRemove,
+    },
 };
 
 use crate::{cities, text, utils, Bot, DatingPurpose, EditProfile, Subjects};
@@ -168,6 +172,24 @@ pub async fn request_set_photos(bot: &Bot, chat: &Chat) -> anyhow::Result<()> {
     let keyboard_markup = KeyboardMarkup::new(keyboard).resize_keyboard(true);
     bot.send_message(chat.id, text::REQUEST_SET_PHOTOS)
         .reply_markup(keyboard_markup)
+        .await?;
+    Ok(())
+}
+
+pub async fn request_edit_profile(
+    bot: &Bot,
+    chat: &Chat,
+) -> anyhow::Result<()> {
+    let keyboard: Vec<Vec<_>> = ["Имя", "Пол"]
+        .into_iter()
+        .map(|i| InlineKeyboardButton::callback(i, i))
+        .chunks(3)
+        .into_iter()
+        .map(|row| row.collect())
+        .collect();
+
+    bot.send_message(chat.id, text::REQUEST_EDIT)
+        .reply_markup(InlineKeyboardMarkup::new(keyboard))
         .await?;
     Ok(())
 }

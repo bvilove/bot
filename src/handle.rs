@@ -67,7 +67,7 @@ pub async fn next_state(
             Start
         }
         // invalid states
-        Start | LikeMessage { .. } => {
+        Start | LikeMessage { .. } | Edit => {
             dialogue.exit().await?;
             anyhow::bail!("wrong state: {:?}", state)
         }
@@ -118,6 +118,7 @@ pub async fn print_current_state(
         LikeMessage { .. } => {
             crate::datings::request_like_msg(bot, chat).await?
         }
+        Edit => request_edit_profile(bot, chat).await?,
         // invalid states
         Start => {}
     };
@@ -183,12 +184,9 @@ pub async fn handle_set_city(
                 let keyboard = vec![vec![KeyboardButton::new("Не указывать")]];
                 let keyboard_markup =
                     KeyboardMarkup::new(keyboard).resize_keyboard(true);
-                bot.send_message(
-                    msg.chat.id,
-                    "Не удалось найти город! Попробуйте ввести его имя более точно.\nСовет: посмотрите список городов https://ru.wikipedia.org/wiki/Список_городов_России.",
-                )
-                .reply_markup(keyboard_markup)
-                .await?;
+                bot.send_message(msg.chat.id, text::CANT_FIND_CITY)
+                    .reply_markup(keyboard_markup)
+                    .await?;
             }
         },
     }
@@ -591,6 +589,33 @@ pub async fn handle_set_photos(
     .await?;
 
     dialogue.update(State::SetPhotos(profile)).await?;
+
+    Ok(())
+}
+
+pub async fn handle_edit_callback(
+    bot: Bot,
+    dialogue: MyDialogue,
+    q: CallbackQuery,
+) -> anyhow::Result<()> {
+    let text = q.data.context("callback data not provided")?;
+    let msg = q.message.context("callback without message")?;
+
+    use State::*;
+
+    let p = EditProfile::new(msg.chat.id.0, false);
+    let state = match text.as_str() {
+        "Имя" => SetName(p),
+        "Пол" => SetGender(p),
+        _ => {
+            crate::request::request_edit_profile(&bot, &msg.chat).await?;
+            return Ok(());
+        }
+    };
+
+    bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
+    print_current_state(&state, None, &bot, &msg.chat).await?;
+    dialogue.update(state).await?;
 
     Ok(())
 }
