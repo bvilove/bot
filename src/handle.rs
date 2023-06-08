@@ -56,18 +56,18 @@ pub async fn next_state(
         SetLocationFilter(EditProfile { create_new: true, .. }) => {
             SetAbout(p.clone())
         }
-        SetAbout(EditProfile { create_new: true, .. }) => {
+        SetAbout(EditProfile { create_new: true, .. }) => SetPhotos(p.clone()),
+        SetPhotos(EditProfile { create_new: true, .. }) => {
             db.create_or_update_user(p.clone()).await?;
-            SetPhotos(EditProfile::new(chat.id.0))
+            crate::datings::send_profile(bot, db, p.id).await?;
+            Start
         }
-        Start => {
+        // invalid states
+        Start | LikeMessage { .. } => {
             dialogue.exit().await?;
             anyhow::bail!("wrong state: {:?}", state)
         }
-        LikeMessage(_) => {
-            dialogue.exit().await?;
-            Start
-        }
+        // *(EditProfile { create_new: true, .. })
         _ => {
             db.create_or_update_user(p.clone()).await?;
             crate::datings::send_profile(bot, db, p.id).await?;
@@ -89,7 +89,9 @@ pub async fn print_current_state(
     use State::*;
 
     use crate::request::*;
+
     match state {
+        // edit profile
         SetName(_) => request_set_name(bot, chat).await?,
         SetGender(_) => request_set_gender(bot, chat).await?,
         SetGenderFilter(_) => request_set_gender_filter(bot, chat).await?,
@@ -108,9 +110,12 @@ pub async fn print_current_state(
         }
         SetAbout(_) => request_set_about(bot, chat).await?,
         SetPhotos(_) => request_set_photos(bot, chat).await?,
+        // others
+        LikeMessage { .. } => {
+            crate::datings::request_like_msg(bot, chat).await?
+        }
+        // invalid states
         Start => {}
-        LikeMessage(_) => crate::datings::request_like_msg(bot, chat).await?,
-        // _ => anyhow::bail!("wrong state: {:?}", state),
     };
     Ok(())
 }

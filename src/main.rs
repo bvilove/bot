@@ -135,7 +135,7 @@ async fn main() -> anyhow::Result<()> {
                         .endpoint(handle_set_photos),
                 )
                 .branch(
-                    dptree::case![State::LikeMessage(a)]
+                    dptree::case![State::LikeMessage { dating }]
                         .endpoint(datings::handle_like_msg),
                 )
                 .branch(
@@ -224,7 +224,6 @@ macro_rules! make_profile {
             id: i64,
             create_new: bool,
             photos_count: u8,
-            dating: Option<entities::datings::Model>,
             $($element: Option<$ty>),*
         }
         impl EditProfile {
@@ -269,6 +268,7 @@ make_profile!(
 pub enum State {
     #[default]
     Start,
+    // edit profile
     SetName(EditProfile),
     SetGender(EditProfile),
     SetGenderFilter(EditProfile),
@@ -280,7 +280,10 @@ pub enum State {
     SetLocationFilter(EditProfile),
     SetAbout(EditProfile),
     SetPhotos(EditProfile),
-    LikeMessage(EditProfile),
+    // others
+    LikeMessage {
+        dating: entities::datings::Model,
+    },
 }
 
 #[derive(Debug, BotCommands, Clone)]

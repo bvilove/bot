@@ -14,8 +14,7 @@ use teloxide::{
 use tracing::*;
 
 use crate::{
-    db::Database, handle::next_state, text, Bot, DatingPurpose, EditProfile,
-    MyDialogue, State,
+    db::Database, text, Bot, DatingPurpose, EditProfile, MyDialogue, State,
 };
 
 fn format_user(user: &entities::users::Model) -> anyhow::Result<String> {
@@ -295,10 +294,7 @@ pub async fn handle_dating_callback(
                 '💌' => {
                     bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
 
-                    let state = State::LikeMessage(crate::EditProfile {
-                        dating: Some(dating),
-                        ..Default::default()
-                    });
+                    let state = State::LikeMessage { dating };
                     crate::handle::print_current_state(
                         &state, None, &bot, &msg.chat,
                     )
@@ -372,13 +368,11 @@ pub async fn request_like_msg(bot: &Bot, chat: &Chat) -> anyhow::Result<()> {
 
 pub async fn handle_like_msg(
     db: Arc<Database>,
-    state: State,
     dialogue: MyDialogue,
     bot: Bot,
     msg: Message,
-    p: EditProfile,
+    d: entities::datings::Model,
 ) -> anyhow::Result<()> {
-    let d = p.clone().dating.context("dating must be set")?;
     let text = msg.text().context("msg without text")?.to_owned();
 
     let msg_to_send = match text.as_str() {
@@ -398,7 +392,7 @@ pub async fn handle_like_msg(
         .await?;
 
     send_recommendation(&bot, &db, ChatId(d.initiator_id)).await?;
-    next_state(&dialogue, &msg.chat, &state, p, &bot, &db).await?;
+    dialogue.exit().await?;
 
     Ok(())
 }
