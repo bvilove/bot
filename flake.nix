@@ -15,7 +15,7 @@
       system: let
         overlays = [(import rust-overlay)];
         pkgs = import nixpkgs {inherit system overlays;};
-        rustVersion = pkgs.rust-bin.stable.latest.default;
+        rustNightly = pkgs.rust-bin.nightly.latest.default;
 
         pgstart = pkgs.writeShellScriptBin "pgstart" ''
           if [ ! -d $PGHOST ]; then
@@ -35,52 +35,36 @@
         pgstop = pkgs.writeShellScriptBin "pgstop" ''
           pg_ctl -D $PGDATA stop | true
         '';
+
+        buildInputs = with pkgs;
+          [
+            sqlx-cli
+            postgresql
+            openssl
+            pkg-config
+            sea-orm-cli
+            alejandra
+          ]
+          ++ [
+            pgstart
+            pgstop
+          ];
+
+        shellHook = ''
+          export PGDATA=$PWD/postgres/data
+          export PGHOST=$PWD/postgres
+          export LOG_PATH=$PWD/postgres/LOG
+          export PGDATABASE=olympdating
+          export DATABASE_URL=postgresql:///olympdating?host=$PWD/postgres;
+        '';
       in {
         devShells = {
           default = pkgs.mkShell {
-            buildInputs = with pkgs;
-              [
-                sqlx-cli
-                postgresql
-                openssl
-                pkg-config
-                sea-orm-cli
-              ]
-              ++ [
-                pgstart
-                pgstop
-                rustVersion
-              ];
-
-            shellHook = ''
-              export PGDATA=$PWD/postgres/data
-              export PGHOST=$PWD/postgres
-              export LOG_PATH=$PWD/postgres/LOG
-              export PGDATABASE=olympdating
-              export DATABASE_URL=postgresql:///olympdating?host=$PWD/postgres;
-            '';
+            inherit shellHook;
+            buildInputs = buildInputs ++ [rustNightly];
           };
           norust = pkgs.mkShell {
-            buildInputs = with pkgs;
-              [
-                sqlx-cli
-                postgresql
-                openssl
-                pkg-config
-                sea-orm-cli
-              ]
-              ++ [
-                pgstart
-                pgstop
-              ];
-
-            shellHook = ''
-              export PGDATA=$PWD/postgres/data
-              export PGHOST=$PWD/postgres
-              export LOG_PATH=$PWD/postgres/LOG
-              export PGDATABASE=olympdating
-              export DATABASE_URL=postgresql:///olympdating?host=$PWD/postgres;
-            '';
+            inherit shellHook buildInputs;
           };
         };
       }
