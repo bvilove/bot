@@ -1,15 +1,19 @@
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 
 use bitflags::bitflags;
 use db::Database;
 use entities::sea_orm_active_enums::{Gender, LocationFilter};
+use sentry_tracing::EventFilter;
 use teloxide::{
     adaptors::{throttle::Limits, Throttle},
     dispatching::dialogue::InMemStorage,
+    error_handlers::ErrorHandler,
     prelude::*,
     utils::command::BotCommands,
     RequestError,
 };
+use tracing::*;
+use tracing_subscriber::prelude::*;
 
 mod cities;
 mod datings;
@@ -30,11 +34,63 @@ pub enum AppError {
     Other(#[from] anyhow::Error),
 }
 
+struct AppErrorHandler {}
+
+impl AppErrorHandler {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {})
+    }
+}
+
+impl ErrorHandler<anyhow::Error> for AppErrorHandler {
+    fn handle_error(
+        self: Arc<Self>,
+        error: anyhow::Error,
+    ) -> futures_util::future::BoxFuture<'static, ()> {
+        error!("{}", error.to_string());
+        sentry_anyhow::capture_anyhow(&error);
+
+        Box::pin(async {})
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     use handle::*;
 
-    tracing_subscriber::fmt::init();
+    std::env::set_var("RUST_BACKTRACE", "1");
+
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer().with_filter(
+                tracing_subscriber::filter::LevelFilter::from_str(
+                    &std::env::var("RUST_LOG")
+                        .unwrap_or_else(|_| String::from("info")),
+                )
+                .unwrap_or(tracing_subscriber::filter::LevelFilter::INFO),
+            ),
+        )
+        .with(sentry_tracing::layer().event_filter(|md| match md.level() {
+            &Level::TRACE => EventFilter::Ignore,
+            _ => EventFilter::Breadcrumb,
+        }))
+        .try_init()
+        .unwrap();
+
+    let _sentry_guard = match std::env::var("SENTRY_DSN") {
+        Ok(d) => {
+            let guard = sentry::init((d, sentry::ClientOptions {
+                release: sentry::release_name!(),
+                traces_sample_rate: 1.0,
+                ..Default::default()
+            }));
+            Some(guard)
+        }
+        Err(e) => {
+            warn!("can't get SENTRY_DSN: {:?}", e);
+            None
+        }
+    };
 
     tracing::info!("Starting bot...");
     let bot = teloxide::Bot::from_env().throttle(Limits {
@@ -109,6 +165,7 @@ async fn main() -> anyhow::Result<()> {
             InMemStorage::<State>::new(),
             Arc::new(database)
         ])
+        .error_handler(AppErrorHandler::new())
         .enable_ctrlc_handler()
         .build()
         .dispatch()

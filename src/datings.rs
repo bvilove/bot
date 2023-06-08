@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Context;
-use entities::sea_orm_active_enums::Gender;
+use entities::{datings, sea_orm_active_enums::Gender};
 use teloxide::{
     prelude::*,
     types::{
@@ -54,7 +54,8 @@ pub async fn send_profile(
     db: &Arc<Database>,
     id: i64,
 ) -> anyhow::Result<()> {
-    let user = db.get_user(id).await?;
+    let user =
+        db.get_user(id).await?.context("user to send profile not found")?;
 
     send_user_photos(bot, db, id, id).await?;
 
@@ -150,7 +151,10 @@ pub async fn send_like(
     bot: Bot,
     dating: entities::datings::Model,
 ) -> anyhow::Result<()> {
-    let user = db.get_user(dating.initiator_id).await?;
+    let user = db
+        .get_user(dating.initiator_id)
+        .await?
+        .context("dating initiator not found")?;
 
     let user_info = format_user(&user)?;
     let like_msg = format!("Кому то понравилась твоя анкета:\n\n{user_info}");
@@ -200,6 +204,34 @@ pub async fn send_like(
     Ok(())
 }
 
+pub async fn mutual_like(
+    bot: &Bot,
+    db: &Arc<Database>,
+    dating: &datings::Model,
+) -> anyhow::Result<()> {
+    let partner = db
+        .get_user(dating.partner_id)
+        .await?
+        .context("dating partner not found")?;
+
+    db.set_dating_partner_reaction(dating.id, true).await?;
+
+    send_user_photos(bot, db, dating.partner_id, dating.initiator_id).await?;
+
+    let initiator_keyboard = vec![vec![InlineKeyboardButton::url(
+        "Открыть чат",
+        crate::utils::user_url(partner.id),
+    )]];
+    let initiator_keyboard_markup =
+        InlineKeyboardMarkup::new(initiator_keyboard);
+    let initiator_msg =
+        format!("Взаимный лайк!\n\n{}", format_user(&partner)?,);
+    bot.send_message(ChatId(dating.initiator_id), initiator_msg)
+        .reply_markup(initiator_keyboard_markup)
+        .await?;
+    Ok(())
+}
+
 pub async fn handle_dating_callback(
     db: Arc<Database>,
     bot: Bot,
@@ -229,10 +261,10 @@ pub async fn handle_dating_callback(
             db.set_dating_partner_reaction(id, false).await?
         }
         '❤' => {
-            let initiator = db.get_user(dating.initiator_id).await?;
-            let partner = db.get_user(dating.partner_id).await?;
-
-            db.set_dating_partner_reaction(id, true).await?;
+            let initiator = db
+                .get_user(dating.initiator_id)
+                .await?
+                .context("dating initiator not found")?;
 
             let partner_keyboard = vec![vec![InlineKeyboardButton::url(
                 "Открыть чат",
@@ -245,22 +277,7 @@ pub async fn handle_dating_callback(
                 .reply_markup(partner_keyboard_markup)
                 .await?;
 
-            send_user_photos(&bot, &db, dating.partner_id, dating.initiator_id)
-                .await?;
-
-            let initiator_keyboard = vec![vec![InlineKeyboardButton::url(
-                "Открыть чат",
-                crate::utils::user_url(partner.id),
-            )]];
-            let initiator_keyboard_markup =
-                InlineKeyboardMarkup::new(initiator_keyboard);
-            let initiator_msg = format!(
-                "Взаимный лайк!\n\n{}",
-                format_user(&db.get_user(dating.partner_id).await?)?,
-            );
-            bot.send_message(ChatId(dating.initiator_id), initiator_msg)
-                .reply_markup(initiator_keyboard_markup)
-                .await?;
+            mutual_like(&bot, &db, &dating).await?;
         }
         _ => {}
     }

@@ -10,8 +10,7 @@ pub fn find_city(query: &str) -> Option<i32> {
         .sorted_unstable_by(|(_, left), (_, right)| {
             jaro_winkler(query, left).total_cmp(&jaro_winkler(query, right))
         })
-        .rev()
-        .next()
+        .next_back()
         .expect("there must be at least 1 city");
     if jaro_winkler(best_city.1, query) > 0.15 {
         Some(*best_city.0)

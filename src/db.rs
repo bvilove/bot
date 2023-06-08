@@ -3,6 +3,7 @@ use entities::{prelude::*, sea_orm_active_enums::LocationFilter, *};
 use migration::{Migrator, MigratorTrait};
 use sea_orm::{Database as SeaDatabase, DatabaseConnection, *};
 use sea_query::*;
+use tracing::log::LevelFilter;
 
 pub struct Database {
     conn: DatabaseConnection,
@@ -11,7 +12,12 @@ pub struct Database {
 impl Database {
     pub async fn new() -> Result<Self> {
         let db_url = std::env::var("DATABASE_URL")?;
-        let conn = SeaDatabase::connect(db_url).await?;
+
+        let mut conn_options = ConnectOptions::new(db_url);
+        conn_options.sqlx_logging_level(LevelFilter::Debug);
+        conn_options.sqlx_logging(true);
+
+        let conn = SeaDatabase::connect(conn_options).await?;
         Migrator::up(&conn, None).await?;
         Ok(Self { conn })
     }
@@ -73,8 +79,8 @@ impl Database {
         Ok(())
     }
 
-    pub async fn get_user(&self, id: i64) -> Result<users::Model> {
-        Users::find_by_id(id).one(&self.conn).await?.context("user not found")
+    pub async fn get_user(&self, id: i64) -> Result<Option<users::Model>> {
+        Ok(Users::find_by_id(id).one(&self.conn).await?)
     }
 
     pub async fn get_dating(&self, id: i32) -> Result<datings::Model> {
