@@ -9,8 +9,6 @@ pub struct Model {
     pub id: i32,
     pub user_id: i64,
     pub telegram_id: String,
-    #[sea_orm(column_type = "Binary(BlobSize::Blob(None))")]
-    pub data: Vec<u8>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

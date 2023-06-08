@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::Context;
+use anyhow::{bail, Context};
 use entities::{datings, sea_orm_active_enums::Gender};
 use teloxide::{
     prelude::*,
@@ -12,7 +12,7 @@ use teloxide::{
 };
 use tracing::*;
 
-use crate::{db::Database, Bot, DatingPurpose, EditProfile};
+use crate::{db::Database, text, Bot, DatingPurpose, EditProfile};
 
 fn format_user(user: &entities::users::Model) -> anyhow::Result<String> {
     let gender_emoji = match user.gender {
@@ -66,6 +66,19 @@ pub async fn send_profile(
         .reply_markup(KeyboardRemove::new())
         .await?;
 
+    send_ready_to_datings(bot, id).await?;
+
+    Ok(())
+}
+
+async fn send_ready_to_datings(bot: &Bot, id: i64) -> anyhow::Result<()> {
+    let keyboard =
+        vec![vec![InlineKeyboardButton::callback("Смотреть анкеты 🚀", "🚀")]];
+    let keyboard_markup = InlineKeyboardMarkup::new(keyboard);
+
+    bot.send_message(ChatId(id), text::READY_FOR_DATINGS)
+        .reply_markup(keyboard_markup)
+        .await?;
     Ok(())
 }
 
@@ -118,13 +131,14 @@ pub async fn send_recommendation(
             db.set_dating_initiator_msg(dating.id, sent_msg.id.0).await?;
         }
         None => {
-            bot.send_message(
-                chat,
-                "Не удалось никого найти, попробуйте позднее или ослабьте \
-                 фильтры",
-            )
-            // .reply_markup(keyboard_markup)
-            .await?;
+            let keyboard = vec![vec![InlineKeyboardButton::callback(
+                "Попробовать ещё раз",
+                "🚀",
+            )]];
+            let keyboard_markup = InlineKeyboardMarkup::new(keyboard);
+            bot.send_message(chat, text::PARTNER_NOT_FOUND)
+                .reply_markup(keyboard_markup)
+                .await?;
         }
     }
 
@@ -204,7 +218,7 @@ pub async fn send_like(
     Ok(())
 }
 
-pub async fn mutual_like(
+async fn mutual_like(
     bot: &Bot,
     db: &Arc<Database>,
     dating: &datings::Model,
@@ -236,50 +250,69 @@ pub async fn handle_dating_callback(
     db: Arc<Database>,
     bot: Bot,
     q: CallbackQuery,
+    dialogue: crate::MyDialogue,
 ) -> anyhow::Result<()> {
     let text = q.data.context("callback data not provided")?;
     let msg = q.message.context("callback without message")?;
 
-    let id = text.chars().skip(1).collect::<String>().parse::<i32>()?;
-    let dating = db.get_dating(id).await?;
+    let first_char = text.chars().next().context("first char not found")?;
 
-    match text.chars().next().context("first chat not found")? {
-        '👎' => {
+    match first_char {
+        '✍' => {
             bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
-            db.set_dating_initiator_reaction(id, false).await?;
-            send_recommendation(&bot, &db, ChatId(dating.initiator_id)).await?;
+            crate::start_profile_creation(&dialogue, &msg, &bot).await?;
         }
-        // '💌' => handle_initiator_reaction(bot, db, id, true, true).await?,
-        '👍' => {
+        '🚀' => {
             bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
-            db.set_dating_initiator_reaction(id, true).await?;
-            send_recommendation(&bot, &db, ChatId(dating.initiator_id)).await?;
-            send_like(db, bot, dating).await?;
+            send_recommendation(&bot, &db, msg.chat.id).await?;
         }
-        '💔' => {
-            bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
-            db.set_dating_partner_reaction(id, false).await?
-        }
-        '❤' => {
-            let initiator = db
-                .get_user(dating.initiator_id)
-                .await?
-                .context("dating initiator not found")?;
+        _ => {
+            let id = text.chars().skip(1).collect::<String>().parse::<i32>()?;
+            let dating = db.get_dating(id).await?;
 
-            let partner_keyboard = vec![vec![InlineKeyboardButton::url(
-                "Открыть чат",
-                crate::utils::user_url(initiator.id),
-            )]];
-            let partner_keyboard_markup =
-                InlineKeyboardMarkup::new(partner_keyboard);
-            let partner_msg = format_user(&initiator)?;
-            bot.edit_message_text(msg.chat.id, msg.id, partner_msg)
-                .reply_markup(partner_keyboard_markup)
-                .await?;
+            match first_char {
+                '👎' => {
+                    bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
+                    db.set_dating_initiator_reaction(id, false).await?;
+                    send_recommendation(&bot, &db, ChatId(dating.initiator_id))
+                        .await?;
+                }
+                // '💌' => handle_initiator_reaction(bot, db, id, true,
+                // true).await?,
+                '👍' => {
+                    bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
+                    db.set_dating_initiator_reaction(id, true).await?;
+                    send_recommendation(&bot, &db, ChatId(dating.initiator_id))
+                        .await?;
+                    send_like(db, bot, dating).await?;
+                }
+                '💔' => {
+                    bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
+                    db.set_dating_partner_reaction(id, false).await?
+                }
+                '❤' => {
+                    let initiator = db
+                        .get_user(dating.initiator_id)
+                        .await?
+                        .context("dating initiator not found")?;
 
-            mutual_like(&bot, &db, &dating).await?;
+                    let partner_keyboard =
+                        vec![vec![InlineKeyboardButton::url(
+                            "Открыть чат",
+                            crate::utils::user_url(initiator.id),
+                        )]];
+                    let partner_keyboard_markup =
+                        InlineKeyboardMarkup::new(partner_keyboard);
+                    let partner_msg = format_user(&initiator)?;
+                    bot.edit_message_text(msg.chat.id, msg.id, partner_msg)
+                        .reply_markup(partner_keyboard_markup)
+                        .await?;
+
+                    mutual_like(&bot, &db, &dating).await?;
+                }
+                _ => bail!("unknown callback"),
+            }
         }
-        _ => {}
     }
     Ok(())
 }

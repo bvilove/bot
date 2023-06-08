@@ -7,11 +7,14 @@ use teloxide::{
 use crate::{cities, text, utils, Bot, DatingPurpose, EditProfile, Subjects};
 
 pub async fn request_set_location_filter(
-    bot: Bot,
-    p: EditProfile,
-    chat: Chat,
+    bot: &Bot,
+    chat: &Chat,
+    p: &EditProfile,
 ) -> anyhow::Result<()> {
-    let city = p.city.context("city must be set")?;
+    let city = p
+        .city
+        .context("city must be set at this moment")?
+        .context("city must be set at this moment")?;
 
     let keyboard = vec![
         vec![
@@ -37,23 +40,23 @@ pub async fn request_set_location_filter(
     bot.send_message(chat.id, text::EDIT_LOCATION_FILTER)
         .reply_markup(keyboard_markup)
         .await?;
+
     Ok(())
 }
 
-pub async fn request_set_city(bot: Bot, chat: Chat) -> anyhow::Result<()> {
-    // let keyboard = vec![vec![KeyboardButton::new("Список городов")]];
-    // let keyboard_markup =
-    // KeyboardMarkup::new(keyboard).resize_keyboard(true);
+pub async fn request_set_city(bot: &Bot, chat: &Chat) -> anyhow::Result<()> {
+    let keyboard = vec![vec![KeyboardButton::new("Не указывать")]];
+    let keyboard_markup = KeyboardMarkup::new(keyboard).resize_keyboard(true);
     bot.send_message(chat.id, text::REQUEST_CITY)
-        .reply_markup(KeyboardRemove::new())
+        .reply_markup(keyboard_markup)
         .await?;
     Ok(())
 }
 
-pub async fn request_set_name(bot: Bot, chat: Chat) -> anyhow::Result<()> {
-    match chat.kind {
+pub async fn request_set_name(bot: &Bot, chat: &Chat) -> anyhow::Result<()> {
+    match &chat.kind {
         ChatKind::Public(_) => anyhow::bail!("chat isn't private"),
-        ChatKind::Private(p) => match p.first_name {
+        ChatKind::Private(p) => match &p.first_name {
             Some(n) => {
                 let keyboard = vec![vec![KeyboardButton::new(n)]];
                 let keyboard_markup =
@@ -71,7 +74,7 @@ pub async fn request_set_name(bot: Bot, chat: Chat) -> anyhow::Result<()> {
     }
 }
 
-pub async fn request_set_gender(bot: Bot, chat: Chat) -> anyhow::Result<()> {
+pub async fn request_set_gender(bot: &Bot, chat: &Chat) -> anyhow::Result<()> {
     let keyboard = vec![vec![
         KeyboardButton::new(text::GENDER_MALE),
         KeyboardButton::new(text::GENDER_FEMALE),
@@ -85,8 +88,8 @@ pub async fn request_set_gender(bot: Bot, chat: Chat) -> anyhow::Result<()> {
 }
 
 pub async fn request_set_gender_filter(
-    bot: Bot,
-    chat: Chat,
+    bot: &Bot,
+    chat: &Chat,
 ) -> anyhow::Result<()> {
     let keyboard = vec![
         vec![
@@ -103,7 +106,7 @@ pub async fn request_set_gender_filter(
     Ok(())
 }
 
-pub async fn request_set_grade(bot: Bot, chat: Chat) -> anyhow::Result<()> {
+pub async fn request_set_grade(bot: &Bot, chat: &Chat) -> anyhow::Result<()> {
     // let keyboard =
     //     (6..=11).map(|n| KeyboardButton::new(n.to_string())).chunks(3);
     // let keyboard_markup =
@@ -115,7 +118,10 @@ pub async fn request_set_grade(bot: Bot, chat: Chat) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn request_set_subjects(bot: Bot, chat: Chat) -> anyhow::Result<()> {
+pub async fn request_set_subjects(
+    bot: &Bot,
+    chat: &Chat,
+) -> anyhow::Result<()> {
     bot.send_message(chat.id, text::EDIT_SUBJECTS)
         .reply_markup(utils::make_subjects_keyboard(
             Subjects::default(),
@@ -126,8 +132,8 @@ pub async fn request_set_subjects(bot: Bot, chat: Chat) -> anyhow::Result<()> {
 }
 
 pub async fn request_set_dating_purpose(
-    bot: Bot,
-    chat: Chat,
+    bot: &Bot,
+    chat: &Chat,
 ) -> anyhow::Result<()> {
     bot.send_message(chat.id, text::REQUEST_SET_DATING_PURPOSE)
         .reply_markup(utils::make_dating_purpose_keyboard(
@@ -138,8 +144,8 @@ pub async fn request_set_dating_purpose(
 }
 
 pub async fn request_set_subjects_filter(
-    bot: Bot,
-    chat: Chat,
+    bot: &Bot,
+    chat: &Chat,
 ) -> anyhow::Result<()> {
     bot.send_message(chat.id, text::EDIT_PARTNER_SUBJECTS)
         .reply_markup(utils::make_subjects_keyboard(
@@ -150,14 +156,14 @@ pub async fn request_set_subjects_filter(
     Ok(())
 }
 
-pub async fn request_set_about(bot: Bot, chat: Chat) -> anyhow::Result<()> {
+pub async fn request_set_about(bot: &Bot, chat: &Chat) -> anyhow::Result<()> {
     bot.send_message(chat.id, text::EDIT_ABOUT)
         .reply_markup(KeyboardRemove::new())
         .await?;
     Ok(())
 }
 
-pub async fn request_set_photos(bot: Bot, chat: Chat) -> anyhow::Result<()> {
+pub async fn request_set_photos(bot: &Bot, chat: &Chat) -> anyhow::Result<()> {
     let keyboard = vec![vec![KeyboardButton::new("Без фото")]];
     let keyboard_markup = KeyboardMarkup::new(keyboard).resize_keyboard(true);
     bot.send_message(chat.id, text::REQUEST_SET_PHOTOS)

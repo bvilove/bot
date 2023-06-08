@@ -21,7 +21,7 @@ pub struct Model {
     pub subjects: i32,
     pub subjects_filter: i32,
     pub dating_purpose: i16,
-    pub city: i32,
+    pub city: Option<i32>,
     pub location_filter: LocationFilter,
 }
 

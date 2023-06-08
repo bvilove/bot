@@ -96,7 +96,7 @@ impl MigrationTrait for Migration {
                             .small_integer()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(Users::City).integer().not_null())
+                    .col(ColumnDef::new(Users::City).integer())
                     .col(
                         ColumnDef::new(Users::LocationFilter)
                             .enumeration(
@@ -129,11 +129,11 @@ impl MigrationTrait for Migration {
                             .to(Users::Table, Users::Id),
                     )
                     .col(ColumnDef::new(Images::TelegramId).string().not_null())
-                    .col(
-                        ColumnDef::new(Images::Data)
-                            .blob(BlobSize::Long)
-                            .not_null(),
-                    )
+                    // .col(
+                    //     ColumnDef::new(Images::Data)
+                    //         .blob(BlobSize::Long)
+                    //         .not_null(),
+                    // )
                     .to_owned(),
             )
             .await?;
@@ -255,7 +255,7 @@ enum Images {
     Id,
     UserId,
     TelegramId,
-    Data,
+    // Data,
 }
 
 #[derive(Iden)]

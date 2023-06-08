@@ -9,6 +9,7 @@ use teloxide::{
     dispatching::dialogue::InMemStorage,
     error_handlers::ErrorHandler,
     prelude::*,
+    types::{InlineKeyboardButton, InlineKeyboardMarkup},
     utils::command::BotCommands,
     RequestError,
 };
@@ -123,7 +124,7 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .branch(
                     dptree::case![State::SetLocationFilter(a)]
-                        .endpoint(handle_set_partner_city),
+                        .endpoint(handle_set_location_filter),
                 )
                 .branch(
                     dptree::case![State::SetAbout(a)]
@@ -255,7 +256,7 @@ make_profile!(
     subjects: i32,
     subjects_filter: i32,
     dating_purpose: i16,
-    city: i32,
+    city: Option<i32>,
     location_filter: LocationFilter,
 );
 
@@ -283,13 +284,27 @@ enum Command {
     NewProfile,
     #[command(description = "изменить анкету")]
     EditProfile,
-    #[command(description = "показать рекомендации")]
-    Recommend,
+    #[command(description = "найти партнёра")]
+    Date,
     #[command(description = "включить анкету")]
     Enable,
     #[command(description = "выключить анкету")]
     Disable,
+    Start,
     Help,
+}
+
+pub async fn start_profile_creation(
+    dialogue: &MyDialogue,
+    msg: &Message,
+    bot: &Bot,
+) -> anyhow::Result<()> {
+    let profile = EditProfile::new(msg.chat.id.0);
+    let state = State::SetName(profile.clone());
+    handle::print_current_state(&state, &profile, bot, &msg.chat).await?;
+    dialogue.update(state).await?;
+
+    Ok(())
 }
 
 // #[tracing::instrument(skip(db, bot))]
@@ -309,20 +324,10 @@ async fn answer(
     ) -> anyhow::Result<()> {
         match cmd {
             Command::NewProfile => {
-                let profile = EditProfile::new(msg.chat.id.0);
-                let state = State::SetName(profile.clone());
-                handle::print_current_state(&state, profile, bot, msg.chat)
-                    .await?;
-                dialogue.update(state).await?;
+                start_profile_creation(&dialogue, &msg, &bot).await?;
             }
             Command::EditProfile => {
-                // if get_anketa(msg.chat.id.0).await?.is_some() {
-                //     dialogue.update(State::NewName(NewProfile::default())).
-                // await? ;     bot.send_message(msg.chat.id,
-                // EDIT_NAME_TEXT).await?; } else {
-                //     bot.send_message(msg.chat.id, "Сначала создайте анкету")
-                //         .await?;
-                // }
+                start_profile_creation(&dialogue, &msg, &bot).await?;
             }
             Command::Help => {
                 bot.send_message(
@@ -331,8 +336,13 @@ async fn answer(
                 )
                 .await?;
             }
-            Command::Recommend => {
-                // TODO: check if profile exists
+            Command::Date => {
+                if db.get_user(msg.chat.id.0).await?.is_none() {
+                    bot.send_message(msg.chat.id, text::PLEASE_CREATE_PROFILE)
+                        .await?;
+                    return Ok(());
+                }
+
                 datings::send_recommendation(&bot, &db, msg.chat.id).await?;
             }
             Command::Enable => {
@@ -340,6 +350,17 @@ async fn answer(
             }
             Command::Disable => {
                 // TODO
+            }
+            Command::Start => {
+                let keyboard = vec![vec![InlineKeyboardButton::callback(
+                    "Заполнить анкету ✍",
+                    "✍",
+                )]];
+                let keyboard_markup = InlineKeyboardMarkup::new(keyboard);
+
+                bot.send_message(msg.chat.id, text::START)
+                    .reply_markup(keyboard_markup)
+                    .await?;
             }
         }
 

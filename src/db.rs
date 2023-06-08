@@ -59,12 +59,12 @@ impl Database {
         &self,
         user_id: i64,
         tg_id: String,
-        data: Vec<u8>,
+        // data: Vec<u8>,
     ) -> Result<()> {
         let image = entities::images::ActiveModel {
             user_id: ActiveValue::Set(user_id),
             telegram_id: ActiveValue::Set(tg_id),
-            data: ActiveValue::Set(data),
+            // data: ActiveValue::Set(data),
             ..Default::default()
         };
         Images::insert(image).exec(&self.conn).await?;
@@ -222,7 +222,7 @@ impl Database {
                                 users::Column::City
                                     .into_expr()
                                     .binary(BinOper::RShift, 16)
-                                    .eq(user.city >> 16),
+                                    .eq(user.city.unwrap_or(0) >> 16),
                             ),
                     )
                     // SameSubject
@@ -237,7 +237,8 @@ impl Database {
                                     .into_expr()
                                     .binary(BinOper::RShift, 8)
                                     .binary(BinOper::Mod, 2i32.pow(8))
-                                    .eq((user.city >> 8) % 2i32.pow(8)),
+                                    .eq((user.city.unwrap_or(0) >> 8)
+                                        % 2i32.pow(8)),
                             ),
                     )
                     // SameCity
@@ -296,14 +297,15 @@ impl Database {
                 users::Column::City
                     .into_expr()
                     .binary(BinOper::RShift, 16)
-                    .eq(user.city >> 16),
+                    .eq(user.city.context("user city must be set")? >> 16),
             ),
             LocationFilter::SameSubject => partner_query.filter(
                 users::Column::City
                     .into_expr()
                     .binary(BinOper::RShift, 8)
                     .binary(BinOper::Mod, 2i32.pow(8))
-                    .eq((user.city >> 8) % 2i32.pow(8)),
+                    .eq((user.city.context("user city must be set")? >> 8)
+                        % 2i32.pow(8)),
             ),
             LocationFilter::SameCity => partner_query, /* SameCity will be
                                                         * matchned by partner

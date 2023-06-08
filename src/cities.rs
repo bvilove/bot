@@ -8,7 +8,9 @@ pub fn find_city(query: &str) -> Option<i32> {
     let best_city = CITIES
         .entries()
         .sorted_unstable_by(|(_, left), (_, right)| {
-            jaro_winkler(query, left).total_cmp(&jaro_winkler(query, right))
+            jaro_winkler(&query.to_lowercase(), &left.to_lowercase()).total_cmp(
+                &jaro_winkler(&query.to_lowercase(), &right.to_lowercase()),
+            )
         })
         .next_back()
         .expect("there must be at least 1 city");
@@ -23,15 +25,20 @@ pub fn find_city(query: &str) -> Option<i32> {
 //     CITIES.values().sorted_unstable().map(|c| format!("{}\n", c)).collect()
 // }
 
-pub fn format_city(id: i32) -> anyhow::Result<String> {
-    Ok(format!(
-        "{} ФО, {}, {}",
-        COUNTIES.get(&(id >> 16)).context("county not found")?,
-        SUBJECTS
-            .get(&((id >> 8) % 2i32.pow(8)))
-            .context("subject not found")?,
-        CITIES.get(&id).context("city not found")?,
-    ))
+pub fn format_city(id: Option<i32>) -> anyhow::Result<String> {
+    Ok(match id {
+        Some(id) => {
+            format!(
+                "{} ФО, {}, {}",
+                COUNTIES.get(&(id >> 16)).context("county not found")?,
+                SUBJECTS
+                    .get(&((id >> 8) % 2i32.pow(8)))
+                    .context("subject not found")?,
+                CITIES.get(&id).context("city not found")?,
+            )
+        }
+        None => String::from("Город не указан"),
+    })
 }
 
 pub fn county_by_id(id: i32) -> Option<&'static &'static str> {
