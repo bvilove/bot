@@ -286,7 +286,7 @@ pub enum State {
 #[derive(Debug, BotCommands, Clone)]
 #[command(rename_rule = "lowercase", description = "Доступные команды:")]
 enum Command {
-    #[command(description = "создать анкета")]
+    #[command(description = "заполнить анкету")]
     NewProfile,
     #[command(description = "показать мою анкету")]
     MyProfile,
@@ -298,7 +298,9 @@ enum Command {
     Enable,
     #[command(description = "выключить анкету")]
     Disable,
+    #[command(description = "приветственное сообщение")]
     Start,
+    #[command(description = "помощь по командам")]
     Help,
 }
 
