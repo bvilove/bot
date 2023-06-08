@@ -2,9 +2,7 @@ use std::{str::FromStr, sync::Arc};
 
 use bitflags::bitflags;
 use db::Database;
-use entities::{
-    sea_orm_active_enums::{Gender, LocationFilter},
-};
+use entities::sea_orm_active_enums::{Gender, LocationFilter};
 use sentry_tracing::EventFilter;
 use teloxide::{
     adaptors::{throttle::Limits, Throttle},
@@ -288,8 +286,10 @@ pub enum State {
 #[derive(Debug, BotCommands, Clone)]
 #[command(rename_rule = "lowercase", description = "Доступные команды:")]
 enum Command {
-    #[command(description = "новая анкета")]
+    #[command(description = "создать анкета")]
     NewProfile,
+    #[command(description = "показать мою анкету")]
+    MyProfile,
     #[command(description = "изменить анкету")]
     EditProfile,
     #[command(description = "найти партнёра")]
@@ -352,6 +352,9 @@ async fn answer(
                 }
 
                 datings::send_recommendation(&bot, &db, msg.chat.id).await?;
+            }
+            Command::MyProfile => {
+                datings::send_profile(&bot, &db, msg.chat.id.0).await?;
             }
             Command::Enable => {
                 // TODO
