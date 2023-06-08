@@ -7,7 +7,8 @@ use teloxide::{
     adaptors::{throttle::Limits, Throttle},
     dispatching::dialogue::InMemStorage,
     prelude::*,
-    utils::command::BotCommands, RequestError,
+    utils::command::BotCommands,
+    RequestError,
 };
 
 mod cities;
@@ -169,19 +170,16 @@ macro_rules! make_profile {
                     id,
                     create_new: true,
                     photos_count: 0,
-                    name: None,
-                    gender: None,
-                    gender_filter: None,
-                    about: None,
-                    active: None,
-                    graduation_year: None,
-                    grade_up_filter: None,
-                    grade_down_filter: None,
-                    subjects: None,
-                    subjects_filter: None,
-                    dating_purpose: None,
-                    city: None,
-                    location_filter: None
+                    ..Default::default()
+                }
+            }
+            pub fn as_active_model(self) -> entities::users::ActiveModel {
+                use sea_orm::ActiveValue;
+                entities::users::ActiveModel {
+                    id: ActiveValue::Unchanged(self.id),
+                    last_activity: ActiveValue::NotSet,
+                    $($element: self.$element
+                        .map_or(ActiveValue::NotSet, |p| ActiveValue::Set(p))),*
                 }
             }
         }
@@ -228,11 +226,12 @@ enum Command {
     NewProfile,
     #[command(description = "изменить анкету")]
     EditProfile,
+    #[command(description = "показать рекомендации")]
     Recommend,
-    // #[command(description = "включить анкету")]
-    // EnableAnketa,
-    // #[command(description = "выключить анкета")]
-    // DisableAnketa,
+    #[command(description = "включить анкету")]
+    Enable,
+    #[command(description = "выключить анкету")]
+    Disable,
     Help,
 }
 
@@ -244,29 +243,58 @@ async fn answer(
     msg: Message,
     cmd: Command,
 ) -> anyhow::Result<()> {
-    match cmd {
-        Command::NewProfile => {
-            let profile = EditProfile::new(msg.chat.id.0);
-            let state = State::SetName(profile.clone());
-            handle::print_current_state(&state, profile, bot, msg.chat).await?;
-            dialogue.update(state).await?;
-        }
-        Command::EditProfile => {
-            // if get_anketa(msg.chat.id.0).await?.is_some() {
-            //     dialogue.update(State::NewName(NewProfile::default())).await?
-            // ;     bot.send_message(msg.chat.id,
-            // EDIT_NAME_TEXT).await?; } else {
-            //     bot.send_message(msg.chat.id, "Сначала создайте анкету")
-            //         .await?;
-            // }
-        }
-        Command::Help => {
-            bot.send_message(msg.chat.id, Command::descriptions().to_string())
+    async fn inner(
+        db: Arc<Database>,
+        bot: Bot,
+        dialogue: MyDialogue,
+        msg: Message,
+        cmd: Command,
+    ) -> anyhow::Result<()> {
+        match cmd {
+            Command::NewProfile => {
+                let profile = EditProfile::new(msg.chat.id.0);
+                let state = State::SetName(profile.clone());
+                handle::print_current_state(&state, profile, bot, msg.chat)
+                    .await?;
+                dialogue.update(state).await?;
+            }
+            Command::EditProfile => {
+                // if get_anketa(msg.chat.id.0).await?.is_some() {
+                //     dialogue.update(State::NewName(NewProfile::default())).
+                // await? ;     bot.send_message(msg.chat.id,
+                // EDIT_NAME_TEXT).await?; } else {
+                //     bot.send_message(msg.chat.id, "Сначала создайте анкету")
+                //         .await?;
+                // }
+            }
+            Command::Help => {
+                bot.send_message(
+                    msg.chat.id,
+                    Command::descriptions().to_string(),
+                )
                 .await?;
+            }
+            Command::Recommend => {
+                // TODO: check if profile exists
+                datings::send_recommendation(&bot, &db, msg.chat.id).await?;
+            }
+            Command::Enable => {
+                // TODO
+            }
+            Command::Disable => {
+                // TODO
+            }
         }
-        Command::Recommend => {
-            datings::send_recommendation(&bot, &db, msg.chat.id).await?;
-        }
+
+        Ok(())
+    }
+    if let Err(e) = inner(db, bot.clone(), dialogue, msg.clone(), cmd).await {
+        bot.send_message(
+            msg.chat.id,
+            format!("АаААА, ошибка стоп 000000: {}", e),
+        )
+        .await?;
+        return Err(e);
     }
 
     Ok(())

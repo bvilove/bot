@@ -4,6 +4,7 @@
 - edit messages
 - add edit commands
 - show profile command
+- print "Something went wrong" message on error
 
 # Licensing
 

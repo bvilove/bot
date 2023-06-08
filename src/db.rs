@@ -20,33 +20,10 @@ impl Database {
         &self,
         profile: crate::EditProfile,
     ) -> Result<()> {
-        macro_rules! param {
-            ($param:ident) => {
-                match profile.$param {
-                    Some(p) => ActiveValue::Set(p),
-                    None => ActiveValue::NotSet,
-                }
-            };
-        }
-        let user = users::ActiveModel {
-            id: ActiveValue::Unchanged(profile.id),
-            name: param!(name),
-            gender: param!(gender),
-            gender_filter: param!(gender_filter),
-            about: param!(about),
-            active: param!(active),
-            last_activity: ActiveValue::NotSet,
-            graduation_year: param!(graduation_year),
-            grade_up_filter: param!(grade_up_filter),
-            grade_down_filter: param!(grade_down_filter),
-            subjects: param!(subjects),
-            subjects_filter: param!(subjects_filter),
-            dating_purpose: param!(dating_purpose),
-            city: param!(city),
-            location_filter: param!(location_filter),
-        };
+        let id = profile.id;
+        let user = profile.as_active_model();
 
-        if Users::find_by_id(profile.id).one(&self.conn).await?.is_some() {
+        if Users::find_by_id(id).one(&self.conn).await?.is_some() {
             Users::update(user).exec(&self.conn).await?;
         } else {
             Users::insert(user).exec(&self.conn).await?;
@@ -183,18 +160,15 @@ impl Database {
             )
             // Respect dating purpose
             .filter(
-                Expr::cust_with_exprs(
-                    "$1 & $2",
-                    [
-                        users::Column::DatingPurpose
-                            .into_expr()
-                            .cast_as(Alias::new("integer"))
-                            .cast_as(Alias::new("bit(16)")),
-                        Expr::value(user.dating_purpose)
-                            .cast_as(Alias::new("integer"))
-                            .cast_as(Alias::new("bit(16)")),
-                    ],
-                )
+                Expr::cust_with_exprs("$1 & $2", [
+                    users::Column::DatingPurpose
+                        .into_expr()
+                        .cast_as(Alias::new("integer"))
+                        .cast_as(Alias::new("bit(16)")),
+                    Expr::value(user.dating_purpose)
+                        .cast_as(Alias::new("integer"))
+                        .cast_as(Alias::new("bit(16)")),
+                ])
                 .ne(Expr::value(0i16)
                     .cast_as(Alias::new("integer"))
                     .cast_as(Alias::new("bit(16)"))),
@@ -203,16 +177,13 @@ impl Database {
             .filter(
                 Condition::any()
                     .add(
-                        Expr::cust_with_exprs(
-                            "$1 & $2",
-                            [
-                                users::Column::SubjectsFilter
-                                    .into_expr()
-                                    .cast_as(Alias::new("bit(32)")),
-                                Expr::value(user.subjects)
-                                    .cast_as(Alias::new("bit(32)")),
-                            ],
-                        )
+                        Expr::cust_with_exprs("$1 & $2", [
+                            users::Column::SubjectsFilter
+                                .into_expr()
+                                .cast_as(Alias::new("bit(32)")),
+                            Expr::value(user.subjects)
+                                .cast_as(Alias::new("bit(32)")),
+                        ])
                         .ne(Expr::value(0i32).cast_as(Alias::new("bit(32)"))),
                     )
                     .add(users::Column::SubjectsFilter.eq(0i32)),
@@ -294,16 +265,13 @@ impl Database {
         // Respect user's subject preference
         if user.subjects_filter != 0 {
             partner_query = partner_query.filter(
-                Expr::cust_with_exprs(
-                    "$1 & $2",
-                    [
-                        users::Column::Subjects
-                            .into_expr()
-                            .cast_as(Alias::new("bit(32)")),
-                        Expr::value(user.subjects_filter)
-                            .cast_as(Alias::new("bit(32)")),
-                    ],
-                )
+                Expr::cust_with_exprs("$1 & $2", [
+                    users::Column::Subjects
+                        .into_expr()
+                        .cast_as(Alias::new("bit(32)")),
+                    Expr::value(user.subjects_filter)
+                        .cast_as(Alias::new("bit(32)")),
+                ])
                 .ne(Expr::value(0i32).cast_as(Alias::new("bit(32)"))),
             );
         }
@@ -316,7 +284,8 @@ impl Database {
 
         // Respect user's location filter
         partner_query = match user.location_filter {
-            LocationFilter::SameCountry => partner_query, // Just match everything
+            LocationFilter::SameCountry => partner_query, // Just match
+            // everything
             LocationFilter::SameCounty => partner_query.filter(
                 users::Column::City
                     .into_expr()
@@ -330,7 +299,9 @@ impl Database {
                     .binary(BinOper::Mod, 2i32.pow(8))
                     .eq((user.city >> 8) % 2i32.pow(8)),
             ),
-            LocationFilter::SameCity => partner_query, // SameCity will be matchned by partner location filter
+            LocationFilter::SameCity => partner_query, /* SameCity will be
+                                                        * matchned by partner
+                                                        * location filter */
         };
 
         let txn = self.conn.begin().await?;

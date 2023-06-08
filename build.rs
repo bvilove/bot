@@ -1,8 +1,10 @@
-use std::collections::HashMap;
-use std::env;
-use std::fs::File;
-use std::io::{BufReader, BufWriter, Write};
-use std::path::Path;
+use std::{
+    collections::HashMap,
+    env,
+    fs::File,
+    io::{BufReader, BufWriter, Write},
+    path::Path,
+};
 
 use serde::Deserialize;
 
