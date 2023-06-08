@@ -42,7 +42,8 @@ pub async fn request_set_location_filter(
 
 pub async fn request_set_city(bot: Bot, chat: Chat) -> anyhow::Result<()> {
     // let keyboard = vec![vec![KeyboardButton::new("Список городов")]];
-    // let keyboard_markup = KeyboardMarkup::new(keyboard).resize_keyboard(true);
+    // let keyboard_markup =
+    // KeyboardMarkup::new(keyboard).resize_keyboard(true);
     bot.send_message(chat.id, text::REQUEST_CITY)
         .reply_markup(KeyboardRemove::new())
         .await?;
@@ -102,10 +103,7 @@ pub async fn request_set_gender_filter(
     Ok(())
 }
 
-pub async fn request_set_grade(
-    bot: Bot,
-    chat: Chat,
-) -> anyhow::Result<()> {
+pub async fn request_set_grade(bot: Bot, chat: Chat) -> anyhow::Result<()> {
     // let keyboard =
     //     (6..=11).map(|n| KeyboardButton::new(n.to_string())).chunks(3);
     // let keyboard_markup =

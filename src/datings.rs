@@ -43,7 +43,8 @@ fn format_user(user: &entities::users::Model) -> anyhow::Result<String> {
     let city = crate::cities::format_city(user.city)?;
 
     Ok(format!(
-        "{gender_emoji} {}, {grade} класс.\n🔎 Интересует: {purpose}.\n📚 {subjects}.\n🧭 {city}.\n\n{}",
+        "{gender_emoji} {}, {grade} класс.\n🔎 Интересует: {purpose}.\n📚 \
+         {subjects}.\n🧭 {city}.\n\n{}",
         user.name, user.about
     ))
 }
@@ -99,7 +100,8 @@ pub async fn send_recommendation(
                     format!("👎{}", dating.id),
                 ),
                 // TODO: like with message
-                // InlineKeyboardButton::callback("💌", format!("💌{dating_id}")),
+                // InlineKeyboardButton::callback("💌",
+                // format!("💌{dating_id}")),
                 InlineKeyboardButton::callback(
                     "👍",
                     format!("👍{}", dating.id),
@@ -115,22 +117,26 @@ pub async fn send_recommendation(
             db.set_dating_initiator_msg(dating.id, sent_msg.id.0).await?;
         }
         None => {
-            bot.send_message(chat, "Не удалось никого найти, попробуйте позднее или ослабьте фильтры")
-                // .reply_markup(keyboard_markup)
-                .await?;
+            bot.send_message(
+                chat,
+                "Не удалось никого найти, попробуйте позднее или ослабьте \
+                 фильтры",
+            )
+            // .reply_markup(keyboard_markup)
+            .await?;
         }
     }
 
     // if partner_images.is_empty() {
-    //     bot.send_message(chat.id, partner_msg).reply_markup(keyboard_markup).await?;
-    // } else {
+    //     bot.send_message(chat.id,
+    // partner_msg).reply_markup(keyboard_markup).await?; } else {
     //     let medias =
     //         partner_images.into_iter().enumerate().map(|(index, id)| {
     //             let input_file = InputFile::file_id(id);
     //             let mut input_media_photo = InputMediaPhoto::new(input_file);
     //             if index == 0 {
-    //                 input_media_photo = input_media_photo.caption(&partner_msg)
-    //             }
+    //                 input_media_photo =
+    // input_media_photo.caption(&partner_msg)             }
     //             InputMedia::Photo(input_media_photo)
     //         });
     //     bot.send_media_group(chat.id, medias).await?;
