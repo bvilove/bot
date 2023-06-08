@@ -56,7 +56,11 @@ pub async fn next_state(
         SetLocationFilter(EditProfile { create_new: true, .. }) => {
             SetAbout(p.clone())
         }
-        SetAbout(EditProfile { create_new: true, .. }) => SetPhotos(p.clone()),
+        SetAbout(EditProfile { create_new: true, .. }) => {
+            // HACK: create user before setting photos
+            db.create_or_update_user(p.clone()).await?;
+            SetPhotos(p.clone())
+        }
         SetPhotos(EditProfile { create_new: true, .. }) => {
             db.create_or_update_user(p.clone()).await?;
             crate::datings::send_profile(bot, db, p.id).await?;
