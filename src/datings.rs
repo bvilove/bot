@@ -329,8 +329,7 @@ pub async fn handle_dating_callback(
                         )]];
                     let partner_keyboard_markup =
                         InlineKeyboardMarkup::new(partner_keyboard);
-                    let partner_msg = format_user(&initiator)?;
-                    bot.edit_message_text(msg.chat.id, msg.id, partner_msg)
+                    bot.edit_message_reply_markup(msg.chat.id, msg.id)
                         .reply_markup(partner_keyboard_markup)
                         .await?;
 
