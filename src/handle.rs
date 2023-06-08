@@ -43,12 +43,13 @@ pub async fn next_state(
         SetDatingPurpose(EditProfile { create_new: true, .. }) => {
             SetCity(p.clone())
         }
-        SetCity(EditProfile { create_new: true, city: Some(_), .. }) => {
-            SetLocationFilter(p.clone())
-        }
-        SetCity(EditProfile { create_new: true, city: None, .. }) => {
-            SetAbout(p.clone())
-        }
+        SetCity(EditProfile { create_new: true, .. }) => {
+            if p.city.context("city must be set when city editing finished")?.is_some() {
+                SetLocationFilter(p.clone())
+            } else {
+                SetAbout(p.clone())
+            }
+        },
         SetLocationFilter(EditProfile { create_new: true, .. }) => {
             SetAbout(p.clone())
         }
@@ -60,21 +61,24 @@ pub async fn next_state(
             dialogue.exit().await?;
             anyhow::bail!("wrong state: {:?}", state)
         }
+        LikeMessage(_) => {
+            dialogue.exit().await?;
+        Start        }
         _ => {
             db.create_or_update_user(p.clone()).await?;
             crate::datings::send_profile(bot, db, p.id).await?;
             Start
         }
     };
-    dialogue.update(next_state.clone()).await?;
-    print_current_state(&next_state, &p, bot, chat).await?;
+    print_current_state(&next_state, Some(&p), bot, chat).await?;
+    dialogue.update(next_state).await?;
 
     Ok(())
 }
 
 pub async fn print_current_state(
     state: &State,
-    p: &EditProfile,
+    p: Option<&EditProfile>,
     bot: &Bot,
     chat: &Chat,
 ) -> anyhow::Result<()> {
@@ -91,11 +95,13 @@ pub async fn print_current_state(
         SetDatingPurpose(_) => request_set_dating_purpose(bot, chat).await?,
         SetCity(_) => request_set_city(bot, chat).await?,
         SetLocationFilter(_) => {
-            request_set_location_filter(bot, chat, p).await?
+            request_set_location_filter(bot, chat, p.context("profile must be provided")?).await?
         }
         SetAbout(_) => request_set_about(bot, chat).await?,
         SetPhotos(_) => request_set_photos(bot, chat).await?,
-        Start => {} // _ => anyhow::bail!("wrong state: {:?}", state),
+        Start => {}
+        LikeMessage(_) => crate::datings::request_like_msg(bot, chat).await?,
+        // _ => anyhow::bail!("wrong state: {:?}", state),
     };
     Ok(())
 }
@@ -200,7 +206,7 @@ pub async fn handle_set_location_filter(
     } else if cities::city_exists(text) {
         LocationFilter::SameCity
     } else {
-        print_current_state(&state, &profile, &bot, &msg.chat).await?;
+        print_current_state(&state, Some(&profile), &bot, &msg.chat).await?;
         return Ok(());
     };
 
@@ -225,7 +231,7 @@ pub async fn handle_set_name(
                 .await?;
         }
         _ => {
-            print_current_state(&state, &profile, &bot, &msg.chat).await?;
+            print_current_state(&state, Some(&profile), &bot, &msg.chat).await?;
         }
     }
     Ok(())
@@ -243,7 +249,7 @@ pub async fn handle_set_gender(
         text::GENDER_MALE => Gender::Male,
         text::GENDER_FEMALE => Gender::Female,
         _ => {
-            print_current_state(&state, &profile, &bot, &msg.chat).await?;
+            print_current_state(&state, Some(&profile), &bot, &msg.chat).await?;
             return Ok(());
         }
     };
@@ -267,7 +273,7 @@ pub async fn handle_set_partner_gender(
         text::GENDER_FILTER_FEMALE => Some(Gender::Female),
         text::GENDER_FILTER_ANY => None,
         _ => {
-            print_current_state(&state, &profile, &bot, &msg.chat).await?;
+            print_current_state(&state, Some(&profile), &bot, &msg.chat).await?;
             return Ok(());
         }
     };
@@ -291,12 +297,12 @@ pub async fn handle_set_grade(
         .context("no text in message")?
         .parse::<i32>()
     else {
-        print_current_state(&state, &profile, &bot, &msg.chat).await?;
+        print_current_state(&state, Some(&profile), &bot, &msg.chat).await?;
         return Ok(())
     };
 
     if !(1..=11).contains(&grade) {
-        print_current_state(&state, &profile, &bot, &msg.chat).await?;
+        print_current_state(&state, Some(&profile), &bot, &msg.chat).await?;
         return Ok(());
     }
 
@@ -503,7 +509,7 @@ pub async fn handle_set_about(
                 .await?;
         }
         _ => {
-            print_current_state(&state, &profile, &bot, &msg.chat).await?;
+            print_current_state(&state, Some(&profile), &bot, &msg.chat).await?;
         }
     }
     Ok(())
@@ -527,7 +533,7 @@ pub async fn handle_set_photos(
                 next_state(&dialogue, &msg.chat, &state, profile, &bot, &db).await?;
             },
             _ => {
-                print_current_state(&state, &profile, &bot, &msg.chat).await?;
+                print_current_state(&state, Some(&profile), &bot, &msg.chat).await?;
             }
         };
         return Ok(())

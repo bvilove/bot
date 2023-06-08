@@ -2,7 +2,9 @@ use std::{str::FromStr, sync::Arc};
 
 use bitflags::bitflags;
 use db::Database;
-use entities::sea_orm_active_enums::{Gender, LocationFilter};
+use entities::{
+    sea_orm_active_enums::{Gender, LocationFilter},
+};
 use sentry_tracing::EventFilter;
 use teloxide::{
     adaptors::{throttle::Limits, Throttle},
@@ -135,6 +137,10 @@ async fn main() -> anyhow::Result<()> {
                         .endpoint(handle_set_photos),
                 )
                 .branch(
+                    dptree::case![State::LikeMessage(a)]
+                        .endpoint(datings::handle_like_msg),
+                )
+                .branch(
                     dptree::entry()
                         .filter_command::<Command>()
                         .endpoint(answer),
@@ -220,6 +226,7 @@ macro_rules! make_profile {
             id: i64,
             create_new: bool,
             photos_count: u8,
+            dating: Option<entities::datings::Model>,
             $($element: Option<$ty>),*
         }
         impl EditProfile {
@@ -275,6 +282,7 @@ pub enum State {
     SetLocationFilter(EditProfile),
     SetAbout(EditProfile),
     SetPhotos(EditProfile),
+    LikeMessage(EditProfile),
 }
 
 #[derive(Debug, BotCommands, Clone)]
@@ -301,7 +309,7 @@ pub async fn start_profile_creation(
 ) -> anyhow::Result<()> {
     let profile = EditProfile::new(msg.chat.id.0);
     let state = State::SetName(profile.clone());
-    handle::print_current_state(&state, &profile, bot, &msg.chat).await?;
+    handle::print_current_state(&state, None, bot, &msg.chat).await?;
     dialogue.update(state).await?;
 
     Ok(())

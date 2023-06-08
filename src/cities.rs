@@ -28,14 +28,15 @@ pub fn find_city(query: &str) -> Option<i32> {
 pub fn format_city(id: Option<i32>) -> anyhow::Result<String> {
     Ok(match id {
         Some(id) => {
-            format!(
-                "{} ФО, {}, {}",
-                COUNTIES.get(&(id >> 16)).context("county not found")?,
-                SUBJECTS
-                    .get(&((id >> 8) % 2i32.pow(8)))
-                    .context("subject not found")?,
-                CITIES.get(&id).context("city not found")?,
-            )
+            let county = county_by_id(id).context("county not found")?;
+            let subject = subject_by_id(id).context("subject not found")?;
+            let city = city_by_id(id).context("city not found")?;
+
+            if subject != city {
+                format!("{} ФО, {}, {}", county, subject, city)
+            } else {
+                format!("{} ФО, {}", county, city)
+            }
         }
         None => String::from("Город не указан"),
     })

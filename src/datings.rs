@@ -5,14 +5,18 @@ use entities::{datings, sea_orm_active_enums::Gender};
 use teloxide::{
     prelude::*,
     types::{
-        InlineKeyboardButton, InlineKeyboardMarkup, InputFile, InputMedia,
-        InputMediaPhoto, KeyboardRemove, MessageId,
+        Chat, InlineKeyboardButton, InlineKeyboardMarkup, InputFile,
+        InputMedia, InputMediaPhoto, KeyboardButton, KeyboardMarkup,
+        KeyboardRemove, MessageId,
     },
     ApiError, RequestError,
 };
 use tracing::*;
 
-use crate::{db::Database, text, Bot, DatingPurpose, EditProfile};
+use crate::{
+    db::Database, handle::next_state, text, Bot, DatingPurpose, EditProfile,
+    MyDialogue, State,
+};
 
 fn format_user(user: &entities::users::Model) -> anyhow::Result<String> {
     let gender_emoji = match user.gender {
@@ -113,9 +117,10 @@ pub async fn send_recommendation(
                     "👎",
                     format!("👎{}", dating.id),
                 ),
-                // TODO: like with message
-                // InlineKeyboardButton::callback("💌",
-                // format!("💌{dating_id}")),
+                InlineKeyboardButton::callback(
+                    "💌",
+                    format!("💌{}", dating.id),
+                ),
                 InlineKeyboardButton::callback(
                     "👍",
                     format!("👍{}", dating.id),
@@ -161,9 +166,10 @@ pub async fn send_recommendation(
 }
 
 pub async fn send_like(
-    db: Arc<Database>,
-    bot: Bot,
-    dating: entities::datings::Model,
+    db: &Arc<Database>,
+    bot: &Bot,
+    dating: &entities::datings::Model,
+    msg: Option<String>,
 ) -> anyhow::Result<()> {
     let user = db
         .get_user(dating.initiator_id)
@@ -171,9 +177,18 @@ pub async fn send_like(
         .context("dating initiator not found")?;
 
     let user_info = format_user(&user)?;
-    let like_msg = format!("Кому то понравилась твоя анкета:\n\n{user_info}");
 
-    match send_user_photos(&bot, &db, dating.initiator_id, dating.partner_id)
+    let like_msg = match msg {
+        Some(m) => {
+            format!(
+                "Кому то понравилась ваша анкета и он оставил вам \
+                 сообщение:\n{m}\n\n{user_info}"
+            )
+        }
+        None => format!("Кому то понравилась ваша анкета:\n\n{user_info}"),
+    };
+
+    match send_user_photos(bot, db, dating.initiator_id, dating.partner_id)
         .await
     {
         Err(crate::AppError::Telegram(RequestError::Api(
@@ -277,14 +292,25 @@ pub async fn handle_dating_callback(
                     send_recommendation(&bot, &db, ChatId(dating.initiator_id))
                         .await?;
                 }
-                // '💌' => handle_initiator_reaction(bot, db, id, true,
-                // true).await?,
+                '💌' => {
+                    bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
+
+                    let state = State::LikeMessage(crate::EditProfile {
+                        dating: Some(dating),
+                        ..Default::default()
+                    });
+                    crate::handle::print_current_state(
+                        &state, None, &bot, &msg.chat,
+                    )
+                    .await?;
+                    dialogue.update(state).await?;
+                }
                 '👍' => {
                     bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
                     db.set_dating_initiator_reaction(id, true).await?;
                     send_recommendation(&bot, &db, ChatId(dating.initiator_id))
                         .await?;
-                    send_like(db, bot, dating).await?;
+                    send_like(&db, &bot, &dating, None).await?;
                 }
                 '💔' => {
                     bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
@@ -333,5 +359,47 @@ async fn send_user_photos(
         });
         bot.send_media_group(ChatId(chat), medias).await?;
     }
+    Ok(())
+}
+
+pub async fn request_like_msg(bot: &Bot, chat: &Chat) -> anyhow::Result<()> {
+    let keyboard = vec![vec![KeyboardButton::new("Отмена")]];
+    let keyboard_markup = KeyboardMarkup::new(keyboard).resize_keyboard(true);
+    bot.send_message(chat.id, text::SEND_LIKE)
+        .reply_markup(keyboard_markup)
+        .await?;
+    Ok(())
+}
+
+pub async fn handle_like_msg(
+    db: Arc<Database>,
+    state: State,
+    dialogue: MyDialogue,
+    bot: Bot,
+    msg: Message,
+    p: EditProfile,
+) -> anyhow::Result<()> {
+    let d = p.clone().dating.context("dating must be set")?;
+    let text = msg.text().context("msg without text")?.to_owned();
+
+    let msg_to_send = match text.as_str() {
+        "Отмена" => {
+            db.set_dating_initiator_reaction(d.id, false).await?;
+            "Отправка лайка отменена"
+        }
+        _ => {
+            db.set_dating_initiator_reaction(d.id, true).await?;
+            send_like(&db, &bot, &d, Some(text)).await?;
+            "Лайк отправлен!"
+        }
+    };
+
+    bot.send_message(msg.chat.id, msg_to_send)
+        .reply_markup(KeyboardRemove::new())
+        .await?;
+
+    send_recommendation(&bot, &db, ChatId(d.initiator_id)).await?;
+    next_state(&dialogue, &msg.chat, &state, p, &bot, &db).await?;
+
     Ok(())
 }

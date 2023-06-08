@@ -11,29 +11,29 @@ pub async fn request_set_location_filter(
     chat: &Chat,
     p: &EditProfile,
 ) -> anyhow::Result<()> {
-    let city = p
+    let id = p
         .city
         .context("city must be set at this moment")?
         .context("city must be set at this moment")?;
+
+    let subject =
+        cities::subject_by_id(id).context("subject not found")?.to_owned();
+    let city = cities::city_by_id(id).context("city not found")?.to_owned();
+
+    let mut subject_city = vec![KeyboardButton::new(subject)];
+    if subject != city {
+        subject_city.push(KeyboardButton::new(city))
+    };
 
     let keyboard = vec![
         vec![
             KeyboardButton::new("Вся Россия".to_owned()),
             KeyboardButton::new(format!(
                 "{} ФО",
-                cities::county_by_id(city).context("county not found")?
+                cities::county_by_id(id).context("county not found")?
             )),
         ],
-        vec![
-            KeyboardButton::new(
-                cities::subject_by_id(city)
-                    .context("subject not found")?
-                    .to_owned(),
-            ),
-            KeyboardButton::new(
-                cities::city_by_id(city).context("city not found")?.to_owned(),
-            ),
-        ],
+        subject_city,
     ];
     let keyboard_markup = KeyboardMarkup::new(keyboard).resize_keyboard(true);
 
