@@ -168,7 +168,7 @@ async fn main() -> anyhow::Result<()> {
                 .branch(
                     dptree::case![State::Edit].endpoint(handle_edit_callback),
                 )
-                .endpoint(datings::handle_dating_callback),
+                .branch(dptree::endpoint(datings::handle_dating_callback)),
         );
 
     let database = db::Database::new().await?;
