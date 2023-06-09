@@ -236,9 +236,3 @@ pub fn grade_from_graduation_year(graduation_year: i32) -> anyhow::Result<i32> {
 
     Ok(year)
 }
-
-pub fn user_url(id: i64) -> url::Url {
-    let mut url = url::Url::parse("tg://user").expect("tg url must be parsed");
-    url.set_query(Some(&format!("id={id}")));
-    url
-}

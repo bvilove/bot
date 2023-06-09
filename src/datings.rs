@@ -7,8 +7,9 @@ use teloxide::{
     types::{
         Chat, InlineKeyboardButton, InlineKeyboardMarkup, InputFile,
         InputMedia, InputMediaPhoto, KeyboardButton, KeyboardMarkup,
-        KeyboardRemove, MessageId,
+        KeyboardRemove, MessageId, ParseMode,
     },
+    utils::markdown,
     ApiError, RequestError,
 };
 use tracing::*;
@@ -45,11 +46,11 @@ fn format_user(user: &entities::users::Model) -> anyhow::Result<String> {
 
     let city = crate::cities::format_city(user.city)?;
 
-    Ok(format!(
+    Ok(markdown::escape(&format!(
         "{gender_emoji} {}, {grade} класс.\n🔎 Интересует: {purpose}.\n📚 \
          {subjects}.\n🧭 {city}.\n\n{}",
         user.name, user.about
-    ))
+    )))
 }
 
 pub async fn send_profile(
@@ -66,6 +67,7 @@ pub async fn send_profile(
     let msg = format!("Так выглядит ваша анкета:\n\n{}", user_str);
 
     bot.send_message(ChatId(id), msg)
+        .parse_mode(ParseMode::MarkdownV2)
         .reply_markup(KeyboardRemove::new())
         .await?;
 
@@ -129,6 +131,7 @@ pub async fn send_recommendation(
 
             let sent_msg = bot
                 .send_message(chat, format_user(&partner)?)
+                .parse_mode(ParseMode::MarkdownV2)
                 .reply_markup(keyboard_markup)
                 .await?;
 
@@ -180,7 +183,7 @@ pub async fn send_like(
     let like_msg = match msg {
         Some(m) => {
             format!(
-                "Кому то понравилась ваша анкета и он оставил вам \
+                "Кому то понравилась ваша анкета и вам оставили \
                  сообщение:\n{m}\n\n{user_info}"
             )
         }
@@ -232,6 +235,15 @@ pub async fn send_like(
     Ok(())
 }
 
+fn format_like(user: &entities::users::Model) -> anyhow::Result<String> {
+    Ok(format!(
+        "{} {}\n\n{}",
+        markdown::escape("Взаимный лайк! Начинайте общаться:"),
+        format_user(user)?,
+        format_link(&user.name, user.id)
+    ))
+}
+
 async fn mutual_like(
     bot: &Bot,
     db: &Arc<Database>,
@@ -246,18 +258,39 @@ async fn mutual_like(
 
     send_user_photos(bot, db, dating.partner_id, dating.initiator_id).await?;
 
-    let initiator_keyboard = vec![vec![InlineKeyboardButton::url(
-        "Открыть чат",
-        crate::utils::user_url(partner.id),
-    )]];
-    let initiator_keyboard_markup =
-        InlineKeyboardMarkup::new(initiator_keyboard);
-    let initiator_msg =
-        format!("Взаимный лайк!\n\n{}", format_user(&partner)?,);
-    bot.send_message(ChatId(dating.initiator_id), initiator_msg)
-        .reply_markup(initiator_keyboard_markup)
+    // let initiator_keyboard = vec![vec![InlineKeyboardButton::url(
+    //     "Открыть чат",
+    //     crate::utils::user_url(partner.id),
+    // )]];
+    // let initiator_keyboard_markup =
+    //     InlineKeyboardMarkup::new(initiator_keyboard);
+    bot.send_message(ChatId(dating.initiator_id), format_like(&partner)?)
+        .parse_mode(ParseMode::MarkdownV2)
+        .reply_markup(KeyboardRemove::new())
+        .await?;
+
+    let initiator = db
+        .get_user(dating.initiator_id)
+        .await?
+        .context("dating partner not found")?;
+
+    send_user_photos(bot, db, dating.initiator_id, dating.partner_id).await?;
+
+    // let initiator_keyboard = vec![vec![InlineKeyboardButton::url(
+    //     "Открыть чат",
+    //     crate::utils::user_url(partner.id),
+    // )]];
+    // let initiator_keyboard_markup =
+    //     InlineKeyboardMarkup::new(initiator_keyboard);
+    bot.send_message(ChatId(dating.partner_id), format_like(&initiator)?)
+        .parse_mode(ParseMode::MarkdownV2)
+        .reply_markup(KeyboardRemove::new())
         .await?;
     Ok(())
+}
+
+fn format_link(name: &str, id: i64) -> String {
+    markdown::link(&format!("tg://user?id={id}"), name)
 }
 
 pub async fn handle_dating_callback(
@@ -313,20 +346,20 @@ pub async fn handle_dating_callback(
                     db.set_dating_partner_reaction(id, false).await?
                 }
                 '❤' => {
-                    let initiator = db
-                        .get_user(dating.initiator_id)
-                        .await?
-                        .context("dating initiator not found")?;
+                    // let initiator = db
+                    //     .get_user(dating.initiator_id)
+                    //     .await?
+                    //     .context("dating initiator not found")?;
 
-                    let partner_keyboard =
-                        vec![vec![InlineKeyboardButton::url(
-                            "Открыть чат",
-                            crate::utils::user_url(initiator.id),
-                        )]];
-                    let partner_keyboard_markup =
-                        InlineKeyboardMarkup::new(partner_keyboard);
+                    // let partner_keyboard =
+                    //     vec![vec![InlineKeyboardButton::url(
+                    //         "Открыть чат",
+                    //         crate::utils::user_url(initiator.id),
+                    //     )]];
+                    // let partner_keyboard_markup =
+                    //     InlineKeyboardMarkup::new(partner_keyboard);
                     bot.edit_message_reply_markup(msg.chat.id, msg.id)
-                        .reply_markup(partner_keyboard_markup)
+                        // .reply_markup(partner_keyboard_markup)
                         .await?;
 
                     mutual_like(&bot, &db, &dating).await?;
