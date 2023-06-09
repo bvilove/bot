@@ -251,16 +251,21 @@ impl Database {
                     .from(datings::Column::PartnerId)
                     .to(users::Column::Id)
                     .on_condition(move |_left, _right| {
-                        datings::Column::InitiatorId
-                            .eq(user_id_clone)
-                            .and(
-                                datings::Column::Time.into_expr().gt(
-                                    Expr::current_timestamp().sub(Expr::cust(
-                                        "interval '30 minutes'",
-                                    )),
-                                ),
+                        Condition::all()
+                            .add(datings::Column::InitiatorId.eq(user_id_clone))
+                            .add(
+                                Condition::any()
+                                    .add(datings::Column::Time.into_expr().gt(
+                                        Expr::current_timestamp().sub(
+                                            Expr::cust("interval '4 hours'"),
+                                        ),
+                                    ))
+                                    .add(datings::Column::Time.into_expr().gt(
+                                        Expr::current_timestamp().sub(
+                                            Expr::cust("interval '7 days'"),
+                                        ),
+                                    ).and(datings::Column::InitiatorReaction.eq(true))),
                             )
-                            .into_condition()
                     })
                     .into(),
             )
@@ -314,7 +319,7 @@ impl Database {
 
         let txn = self.conn.begin().await?;
 
-        // println!("{}", partner_query.build(DatabaseBackend::Postgres));
+        println!("{}", partner_query.build(DatabaseBackend::Postgres));
         let partner = partner_query.one(&txn).await?;
 
         match partner {
