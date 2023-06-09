@@ -341,6 +341,7 @@ pub async fn start_profile_creation(
             .reply_markup(keyboard_markup)
             .await?;
     } else {
+        bot.send_message(msg.chat.id, text::PROFILE_CREATION_STARTED).await?;
         let profile = EditProfile::new(msg.chat.id.0);
         let state = State::SetName(profile.clone());
         handle::print_current_state(&state, None, bot, &msg.chat).await?;

@@ -400,8 +400,7 @@ pub async fn handle_set_subjects_callback(
             msg.chat.id,
             msg.id,
             format!(
-                "{subjects_str}\nЧтобы изменить предметы, которые вы ботаете, \
-                 используйте команду /setsubjects",
+                "{subjects_str}",
             ),
         )
         .await?;
@@ -459,8 +458,7 @@ pub async fn handle_set_subjects_filter_callback(
             msg.chat.id,
             msg.id,
             format!(
-                "{subjects_filter_str}\nЧтобы изменить их, используйте \
-                 /filtersubjects",
+                "{subjects_filter_str}",
             ),
         )
         .await?;
