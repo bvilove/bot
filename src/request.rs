@@ -196,7 +196,7 @@ pub async fn request_edit_profile(
     chat: &Chat,
 ) -> anyhow::Result<()> {
     let keyboard: Vec<Vec<_>> =
-        ["Имя", "Предметы", "О себе", "Город", "Отмена"]
+        ["Имя", "Предметы", "О себе", "Город", "Фото", "Отмена"]
             .into_iter()
             .map(|i| InlineKeyboardButton::callback(i, i))
             .chunks(3)

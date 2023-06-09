@@ -309,11 +309,11 @@ pub enum State {
 #[command(rename_rule = "lowercase", description = "Доступные команды:")]
 enum Command {
     #[command(description = "заполнить анкету")]
-    NewProfile,
+    Create,
     #[command(description = "показать мою анкету")]
-    MyProfile,
+    Profile,
     #[command(description = "изменить анкету")]
-    EditProfile,
+    Edit,
     #[command(description = "найти партнёра")]
     Date,
     #[command(description = "включить анкету")]
@@ -367,10 +367,10 @@ async fn answer(
         cmd: Command,
     ) -> anyhow::Result<()> {
         match cmd {
-            Command::NewProfile => {
+            Command::Create => {
                 start_profile_creation(&dialogue, &msg, &bot).await?;
             }
-            Command::EditProfile => {
+            Command::Edit => {
                 if db.get_user(msg.chat.id.0).await?.is_none() {
                     bot.send_message(msg.chat.id, text::PLEASE_CREATE_PROFILE)
                         .await?;
@@ -396,7 +396,7 @@ async fn answer(
 
                 datings::send_recommendation(&bot, &db, msg.chat.id).await?;
             }
-            Command::MyProfile => {
+            Command::Profile => {
                 datings::send_profile(&bot, &db, msg.chat.id.0).await?;
             }
             Command::Enable => {

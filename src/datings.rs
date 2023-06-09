@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::Context;
+use anyhow::{bail, Context};
 use entities::{datings, sea_orm_active_enums::Gender};
 use teloxide::{
     prelude::*,

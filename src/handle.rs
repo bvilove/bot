@@ -63,8 +63,7 @@ pub async fn next_state(
             db.create_or_update_user(p.clone()).await?;
             SetPhotos(p.clone())
         }
-        SetPhotos(EditProfile { create_new: true, .. }) => {
-            db.create_or_update_user(p.clone()).await?;
+        SetPhotos(_) => {
             crate::datings::send_profile(bot, db, p.id).await?;
             Start
         }
@@ -624,6 +623,7 @@ pub async fn handle_edit_callback(
         "Предметы" => SetSubjects(p.clone()),
         "О себе" => SetAbout(p.clone()),
         "Город" => SetCity(p.clone()),
+        "Фото" => SetPhotos(p.clone()),
         "Отмена" => {
             bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
             dialogue.exit().await?;
