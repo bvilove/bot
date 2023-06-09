@@ -50,11 +50,6 @@ csv = "1.2.2"
 serde = "1.0.163"
 
 [profile.release]
-debug = 2
-overflow-checks = true
-lto = "thin"
-
-[profile.release.package."*"]
 debug = 0
 strip = true
-overflow-checks = false
+lto = "thin"

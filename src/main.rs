@@ -82,6 +82,8 @@ async fn main() -> anyhow::Result<()> {
         Ok(d) => {
             let guard = sentry::init((d, sentry::ClientOptions {
                 release: sentry::release_name!(),
+                default_integrations: true,
+                attach_stacktrace: true,
                 traces_sample_rate: 1.0,
                 ..Default::default()
             }));
