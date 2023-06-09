@@ -3,7 +3,7 @@ use entities::{prelude::*, sea_orm_active_enums::LocationFilter, *};
 use migration::{Migrator, MigratorTrait};
 use sea_orm::{Database as SeaDatabase, DatabaseConnection, *};
 use sea_query::*;
-use tracing::log::LevelFilter;
+use tracing::{log::LevelFilter, instrument};
 
 pub struct Database {
     conn: DatabaseConnection,
@@ -22,6 +22,7 @@ impl Database {
         Ok(Self { conn })
     }
 
+    #[instrument(level = "debug", skip(self))]
     pub async fn create_or_update_user(
         &self,
         profile: crate::EditProfile,
@@ -38,6 +39,7 @@ impl Database {
         Ok(())
     }
 
+    #[instrument(level = "debug", skip(self))]
     pub async fn get_images(&self, user_id: i64) -> Result<Vec<String>> {
         #[derive(FromQueryResult)]
         struct ImageTelegramId {
@@ -55,6 +57,7 @@ impl Database {
             .collect())
     }
 
+    #[instrument(level = "debug", skip(self))]
     pub async fn create_image(
         &self,
         user_id: i64,
@@ -71,6 +74,7 @@ impl Database {
         Ok(())
     }
 
+    #[instrument(level = "debug", skip(self))]
     pub async fn clean_images(&self, user_id: i64) -> Result<()> {
         Images::delete_many()
             .filter(images::Column::UserId.eq(user_id))
@@ -79,10 +83,12 @@ impl Database {
         Ok(())
     }
 
+    #[instrument(level = "debug", skip(self))]
     pub async fn get_user(&self, id: i64) -> Result<Option<users::Model>> {
         Ok(Users::find_by_id(id).one(&self.conn).await?)
     }
 
+    #[instrument(level = "debug", skip(self))]
     pub async fn get_dating(&self, id: i32) -> Result<datings::Model> {
         Datings::find_by_id(id)
             .one(&self.conn)
@@ -90,6 +96,7 @@ impl Database {
             .context("dating not found")
     }
 
+    #[instrument(level = "debug", skip(self))]
     pub async fn update_last_activity(&self, id: i64) -> Result<()> {
         Users::update_many()
             .col_expr(
@@ -102,6 +109,7 @@ impl Database {
         Ok(())
     }
 
+    #[instrument(level = "debug", skip(self))]
     pub async fn get_partner(
         &self,
         user_id: i64,
@@ -348,6 +356,7 @@ impl Database {
         }
     }
 
+    #[instrument(level = "debug", skip(self))]
     pub async fn set_dating_initiator_reaction(
         &self,
         dating: i32,
@@ -361,6 +370,7 @@ impl Database {
         Ok(())
     }
 
+    #[instrument(level = "debug", skip(self))]
     pub async fn set_dating_partner_reaction(
         &self,
         dating: i32,
@@ -374,6 +384,7 @@ impl Database {
         Ok(())
     }
 
+    #[instrument(level = "debug", skip(self))]
     pub async fn set_dating_initiator_msg(
         &self,
         dating: i32,

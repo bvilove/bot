@@ -71,8 +71,9 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or(tracing_subscriber::filter::LevelFilter::INFO),
             ),
         )
-        .with(sentry_tracing::layer().event_filter(|md| match md.level() {
-            &Level::TRACE => EventFilter::Ignore,
+        .with(sentry_tracing::layer().event_filter(|md| match *md.level() {
+            Level::TRACE => EventFilter::Ignore,
+            Level::ERROR => EventFilter::Event,
             _ => EventFilter::Breadcrumb,
         }))
         .try_init()
@@ -351,7 +352,7 @@ pub async fn start_profile_creation(
     Ok(())
 }
 
-// #[tracing::instrument(skip(db, bot))]
+#[tracing::instrument(err, skip(db, bot))]
 async fn answer(
     db: Arc<Database>,
     bot: Bot,

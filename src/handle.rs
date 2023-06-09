@@ -8,12 +8,14 @@ use teloxide::{
     prelude::*,
     types::{Chat, KeyboardButton, KeyboardMarkup, KeyboardRemove},
 };
+use tracing::instrument;
 
 use crate::{
     cities, db, text, utils, Bot, DatingPurpose, EditProfile, MyDialogue,
     State, Subjects,
 };
 
+#[instrument(level = "debug", skip(bot, db))]
 pub async fn next_state(
     dialogue: &MyDialogue,
     chat: &Chat,
@@ -83,6 +85,7 @@ pub async fn next_state(
     Ok(())
 }
 
+#[instrument(level = "debug", skip(bot))]
 pub async fn print_current_state(
     state: &State,
     p: Option<&EditProfile>,
@@ -145,6 +148,7 @@ pub async fn print_current_state(
     Ok(())
 }
 
+#[instrument(level = "debug", skip(bot, db))]
 pub async fn handle_set_city(
     db: Arc<Database>,
     bot: Bot,
@@ -214,6 +218,7 @@ pub async fn handle_set_city(
     Ok(())
 }
 
+#[instrument(level = "debug", skip(bot, db))]
 pub async fn handle_set_location_filter(
     db: Arc<Database>,
     bot: Bot,
@@ -252,6 +257,7 @@ pub async fn handle_set_location_filter(
     Ok(())
 }
 
+#[instrument(level = "debug", skip(bot, db))]
 pub async fn handle_set_name(
     db: Arc<Database>,
     bot: Bot,
@@ -274,6 +280,7 @@ pub async fn handle_set_name(
     Ok(())
 }
 
+#[instrument(level = "debug", skip(bot, db))]
 pub async fn handle_set_gender(
     db: Arc<Database>,
     bot: Bot,
@@ -298,6 +305,7 @@ pub async fn handle_set_gender(
     Ok(())
 }
 
+#[instrument(level = "debug", skip(bot, db))]
 pub async fn handle_set_partner_gender(
     db: Arc<Database>,
     bot: Bot,
@@ -323,6 +331,7 @@ pub async fn handle_set_partner_gender(
     Ok(())
 }
 
+#[instrument(level = "debug", skip(bot, db))]
 pub async fn handle_set_grade(
     db: Arc<Database>,
     bot: Bot,
@@ -364,6 +373,7 @@ pub async fn handle_set_grade(
     Ok(())
 }
 
+#[instrument(level = "debug", skip(bot, db))]
 pub async fn handle_set_subjects_callback(
     db: Arc<Database>,
     bot: Bot,
@@ -415,6 +425,7 @@ pub async fn handle_set_subjects_callback(
     Ok(())
 }
 
+#[instrument(level = "debug", skip(bot, db))]
 pub async fn handle_set_subjects_filter_callback(
     db: Arc<Database>,
     bot: Bot,
@@ -471,6 +482,7 @@ pub async fn handle_set_subjects_filter_callback(
     Ok(())
 }
 
+#[instrument(level = "debug", skip(bot, db))]
 pub async fn handle_set_dating_purpose_callback(
     db: Arc<Database>,
     bot: Bot,
@@ -523,6 +535,7 @@ pub async fn handle_set_dating_purpose_callback(
     Ok(())
 }
 
+#[instrument(level = "debug", skip(bot, db))]
 pub async fn handle_set_about(
     db: Arc<Database>,
     bot: Bot,
@@ -545,6 +558,7 @@ pub async fn handle_set_about(
     Ok(())
 }
 
+#[instrument(level = "debug", skip(bot, db))]
 pub async fn handle_set_photos(
     db: Arc<Database>,
     bot: Bot,
@@ -603,6 +617,7 @@ pub async fn handle_set_photos(
     Ok(())
 }
 
+#[instrument(level = "debug", skip(bot, db))]
 pub async fn handle_edit_callback(
     bot: Bot,
     db: Arc<Database>,
