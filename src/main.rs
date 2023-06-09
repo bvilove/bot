@@ -233,14 +233,24 @@ macro_rules! make_profile {
             $($element: Option<$ty>),*
         }
         impl EditProfile {
-            pub fn new(id: i64, create_new: bool) -> Self {
+            pub fn new(id: i64) -> Self {
                 Self {
                     id,
-                    create_new,
+                    create_new: true,
                     photos_count: 0,
                     ..Default::default()
                 }
             }
+
+            pub fn from_model(m: entities::users::Model) -> Self {
+                Self {
+                    id: m.id,
+                    create_new: false,
+                    photos_count: 0,
+                    $($element: Some(m.$element)),*
+                }
+            }
+
             pub fn as_active_model(self) -> entities::users::ActiveModel {
                 use sea_orm::ActiveValue;
                 entities::users::ActiveModel {
@@ -329,7 +339,7 @@ pub async fn start_profile_creation(
             .reply_markup(keyboard_markup)
             .await?;
     } else {
-        let profile = EditProfile::new(msg.chat.id.0, true);
+        let profile = EditProfile::new(msg.chat.id.0);
         let state = State::SetName(profile.clone());
         handle::print_current_state(&state, None, bot, &msg.chat).await?;
         dialogue.update(state).await?;

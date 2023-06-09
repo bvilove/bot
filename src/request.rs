@@ -125,10 +125,15 @@ pub async fn request_set_grade(bot: &Bot, chat: &Chat) -> anyhow::Result<()> {
 pub async fn request_set_subjects(
     bot: &Bot,
     chat: &Chat,
+    p: &EditProfile,
 ) -> anyhow::Result<()> {
     bot.send_message(chat.id, text::EDIT_SUBJECTS)
         .reply_markup(utils::make_subjects_keyboard(
-            Subjects::default(),
+            match p.subjects {
+                Some(s) => Subjects::from_bits(s)
+                    .context("subjects must be created")?,
+                None => Subjects::default(),
+            },
             utils::SubjectsKeyboardType::User,
         ))
         .await?;
@@ -138,10 +143,15 @@ pub async fn request_set_subjects(
 pub async fn request_set_dating_purpose(
     bot: &Bot,
     chat: &Chat,
+    p: &EditProfile,
 ) -> anyhow::Result<()> {
     bot.send_message(chat.id, text::REQUEST_SET_DATING_PURPOSE)
         .reply_markup(utils::make_dating_purpose_keyboard(
-            DatingPurpose::default(),
+            match p.dating_purpose {
+                Some(d) => DatingPurpose::from_bits(d)
+                    .context("dating purpose must be created")?,
+                None => DatingPurpose::default(),
+            },
         ))
         .await?;
     Ok(())
@@ -150,10 +160,15 @@ pub async fn request_set_dating_purpose(
 pub async fn request_set_subjects_filter(
     bot: &Bot,
     chat: &Chat,
+    p: &EditProfile,
 ) -> anyhow::Result<()> {
     bot.send_message(chat.id, text::EDIT_PARTNER_SUBJECTS)
         .reply_markup(utils::make_subjects_keyboard(
-            Subjects::default(),
+            match p.subjects_filter {
+                Some(s) => Subjects::from_bits(s)
+                    .context("subjects filter must be created")?,
+                None => Subjects::default(),
+            },
             utils::SubjectsKeyboardType::Partner,
         ))
         .await?;
@@ -180,13 +195,14 @@ pub async fn request_edit_profile(
     bot: &Bot,
     chat: &Chat,
 ) -> anyhow::Result<()> {
-    let keyboard: Vec<Vec<_>> = ["Имя", "Пол"]
-        .into_iter()
-        .map(|i| InlineKeyboardButton::callback(i, i))
-        .chunks(3)
-        .into_iter()
-        .map(|row| row.collect())
-        .collect();
+    let keyboard: Vec<Vec<_>> =
+        ["Имя", "Предметы", "О себе", "Город", "Отмена"]
+            .into_iter()
+            .map(|i| InlineKeyboardButton::callback(i, i))
+            .chunks(3)
+            .into_iter()
+            .map(|row| row.collect())
+            .collect();
 
     bot.send_message(chat.id, text::REQUEST_EDIT)
         .reply_markup(InlineKeyboardMarkup::new(keyboard))

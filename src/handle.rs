@@ -34,23 +34,25 @@ pub async fn next_state(
         SetGraduationYear(EditProfile { create_new: true, .. }) => {
             SetSubjects(p.clone())
         }
-        SetSubjects(EditProfile { create_new: true, .. }) => {
-            SetSubjectsFilter(p.clone())
-        }
+        SetSubjects(_) => SetSubjectsFilter(p.clone()),
         SetSubjectsFilter(EditProfile { create_new: true, .. }) => {
             SetDatingPurpose(p.clone())
         }
         SetDatingPurpose(EditProfile { create_new: true, .. }) => {
             SetCity(p.clone())
         }
-        SetCity(EditProfile { create_new: true, .. }) => {
+        SetCity(_) => {
             if p.city
                 .context("city must be set when city editing finished")?
                 .is_some()
             {
                 SetLocationFilter(p.clone())
             } else {
-                SetAbout(p.clone())
+                if p.create_new {
+                    SetAbout(p.clone())
+                } else {
+                    Start
+                }
             }
         }
         SetLocationFilter(EditProfile { create_new: true, .. }) => {
@@ -100,9 +102,30 @@ pub async fn print_current_state(
         SetGender(_) => request_set_gender(bot, chat).await?,
         SetGenderFilter(_) => request_set_gender_filter(bot, chat).await?,
         SetGraduationYear(_) => request_set_grade(bot, chat).await?,
-        SetSubjects(_) => request_set_subjects(bot, chat).await?,
-        SetSubjectsFilter(_) => request_set_subjects_filter(bot, chat).await?,
-        SetDatingPurpose(_) => request_set_dating_purpose(bot, chat).await?,
+        SetSubjects(_) => {
+            request_set_subjects(
+                bot,
+                chat,
+                p.context("profile must be provided")?,
+            )
+            .await?
+        }
+        SetSubjectsFilter(_) => {
+            request_set_subjects_filter(
+                bot,
+                chat,
+                p.context("profile must be provided")?,
+            )
+            .await?
+        }
+        SetDatingPurpose(_) => {
+            request_set_dating_purpose(
+                bot,
+                chat,
+                p.context("profile must be provided")?,
+            )
+            .await?
+        }
         SetCity(_) => request_set_city(bot, chat).await?,
         SetLocationFilter(_) => {
             request_set_location_filter(
@@ -595,6 +618,7 @@ pub async fn handle_set_photos(
 
 pub async fn handle_edit_callback(
     bot: Bot,
+    db: Arc<Database>,
     dialogue: MyDialogue,
     q: CallbackQuery,
 ) -> anyhow::Result<()> {
@@ -603,18 +627,27 @@ pub async fn handle_edit_callback(
 
     use State::*;
 
-    let p = EditProfile::new(msg.chat.id.0, false);
+    let user = db.get_user(msg.chat.id.0).await?.context("user not found")?;
+    let p = EditProfile::from_model(user);
     let state = match text.as_str() {
-        "Имя" => SetName(p),
-        "Пол" => SetGender(p),
+        "Имя" => SetName(p.clone()),
+        "Предметы" => SetSubjects(p.clone()),
+        "О себе" => SetAbout(p.clone()),
+        "Город" => SetCity(p.clone()),
+        "Отмена" => {
+            bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
+            dialogue.exit().await?;
+            return Ok(());
+        }
         _ => {
+            bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
             crate::request::request_edit_profile(&bot, &msg.chat).await?;
             return Ok(());
         }
     };
 
     bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
-    print_current_state(&state, None, &bot, &msg.chat).await?;
+    print_current_state(&state, Some(&p), &bot, &msg.chat).await?;
     dialogue.update(state).await?;
 
     Ok(())
