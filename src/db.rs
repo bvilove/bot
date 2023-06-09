@@ -319,7 +319,7 @@ impl Database {
 
         let txn = self.conn.begin().await?;
 
-        println!("{}", partner_query.build(DatabaseBackend::Postgres));
+        // println!("{}", partner_query.build(DatabaseBackend::Postgres));
         let partner = partner_query.one(&txn).await?;
 
         match partner {
