@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{bail, Context};
+use anyhow::Context;
 use entities::{datings, sea_orm_active_enums::Gender};
 use teloxide::{
     prelude::*,
@@ -101,9 +101,6 @@ pub async fn send_recommendation(
                     )
                     .await
                 {
-                    Err(RequestError::Api(ApiError::MessageToEditNotFound)) => {
-                        warn!("message to edit not found")
-                    }
                     Err(e) => {
                         sentry_anyhow::capture_anyhow(
                             &anyhow::Error::from(e)
@@ -206,7 +203,12 @@ pub async fn send_like(
             .await?;
             return Ok(());
         }
-        Err(e) => return Err(e.into()),
+        Err(e) => {
+            sentry_anyhow::capture_anyhow(
+                &anyhow::Error::from(e)
+                    .context("error sending like while sending user photos"),
+            );
+        }
         Ok(_) => {}
     }
 
@@ -230,7 +232,12 @@ pub async fn send_like(
             .await?;
             return Ok(());
         }
-        Err(e) => return Err(e.into()),
+        Err(e) => {
+            sentry_anyhow::capture_anyhow(
+                &anyhow::Error::from(e)
+                    .context("error sending like while sending profile"),
+            );
+        }
         Ok(_) => {}
     }
 
@@ -249,7 +256,14 @@ async fn mutual_like(
 
     db.set_dating_partner_reaction(dating.id, true).await?;
 
-    send_user_photos(bot, db, dating.partner_id, dating.initiator_id).await?;
+    if let Err(e) =
+        send_user_photos(bot, db, dating.partner_id, dating.initiator_id).await
+    {
+        sentry_anyhow::capture_anyhow(
+            &anyhow::Error::from(e)
+                .context("error sending user photos to dating initiator"),
+        );
+    };
 
     let initiator_keyboard = vec![vec![InlineKeyboardButton::url(
         "Открыть чат",
@@ -259,9 +273,17 @@ async fn mutual_like(
         InlineKeyboardMarkup::new(initiator_keyboard);
     let initiator_msg =
         format!("Взаимный лайк!\n\n{}", format_user(&partner)?,);
-    bot.send_message(ChatId(dating.initiator_id), initiator_msg)
+    if let Err(e) = bot
+        .send_message(ChatId(dating.initiator_id), initiator_msg)
         .reply_markup(initiator_keyboard_markup)
-        .await?;
+        .await
+    {
+        sentry_anyhow::capture_anyhow(
+            &anyhow::Error::from(e)
+                .context("error sending profile to dating initiator"),
+        );
+    }
+
     Ok(())
 }
 
@@ -330,9 +352,17 @@ pub async fn handle_dating_callback(
                         )]];
                     let partner_keyboard_markup =
                         InlineKeyboardMarkup::new(partner_keyboard);
-                    bot.edit_message_reply_markup(msg.chat.id, msg.id)
+                    if let Err(e) = bot
+                        .edit_message_reply_markup(msg.chat.id, msg.id)
                         .reply_markup(partner_keyboard_markup)
-                        .await?;
+                        .await
+                    {
+                        sentry_anyhow::capture_anyhow(
+                            &anyhow::Error::from(e).context(
+                                "error editing mutual like partner's message",
+                            ),
+                        );
+                    }
 
                     mutual_like(&bot, &db, &dating).await?;
                 }
@@ -396,8 +426,8 @@ pub async fn handle_like_msg(
         .reply_markup(KeyboardRemove::new())
         .await?;
 
-    send_recommendation(&bot, &db, ChatId(d.initiator_id)).await?;
     dialogue.exit().await?;
+    send_recommendation(&bot, &db, ChatId(d.initiator_id)).await?;
 
     Ok(())
 }

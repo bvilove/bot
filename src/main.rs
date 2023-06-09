@@ -400,10 +400,20 @@ async fn answer(
                 datings::send_profile(&bot, &db, msg.chat.id.0).await?;
             }
             Command::Enable => {
-                // TODO
+                db.create_or_update_user(EditProfile {
+                    active: Some(true),
+                    ..EditProfile::new(msg.chat.id.0)
+                })
+                .await?;
+                bot.send_message(msg.chat.id, text::PROFILE_ENABLED).await?;
             }
             Command::Disable => {
-                // TODO
+                db.create_or_update_user(EditProfile {
+                    active: Some(false),
+                    ..EditProfile::new(msg.chat.id.0)
+                })
+                .await?;
+                bot.send_message(msg.chat.id, text::PROFILE_DISABLED).await?;
             }
             Command::Start => {
                 let keyboard = vec![vec![InlineKeyboardButton::callback(
