@@ -51,5 +51,4 @@ serde = "1.0.163"
 
 [profile.release]
 debug = 0
-strip = true
 lto = "thin"
