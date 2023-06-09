@@ -397,9 +397,21 @@ async fn answer(
                 datings::send_recommendation(&bot, &db, msg.chat.id).await?;
             }
             Command::Profile => {
+                if db.get_user(msg.chat.id.0).await?.is_none() {
+                    bot.send_message(msg.chat.id, text::PLEASE_CREATE_PROFILE)
+                        .await?;
+                    return Ok(());
+                }
+
                 datings::send_profile(&bot, &db, msg.chat.id.0).await?;
             }
             Command::Enable => {
+                if db.get_user(msg.chat.id.0).await?.is_none() {
+                    bot.send_message(msg.chat.id, text::PLEASE_CREATE_PROFILE)
+                        .await?;
+                    return Ok(());
+                }
+
                 db.create_or_update_user(EditProfile {
                     active: Some(true),
                     ..EditProfile::new(msg.chat.id.0)
@@ -408,6 +420,12 @@ async fn answer(
                 bot.send_message(msg.chat.id, text::PROFILE_ENABLED).await?;
             }
             Command::Disable => {
+                if db.get_user(msg.chat.id.0).await?.is_none() {
+                    bot.send_message(msg.chat.id, text::PLEASE_CREATE_PROFILE)
+                        .await?;
+                    return Ok(());
+                }
+
                 db.create_or_update_user(EditProfile {
                     active: Some(false),
                     ..EditProfile::new(msg.chat.id.0)
