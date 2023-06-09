@@ -314,12 +314,21 @@ pub async fn handle_dating_callback(
             match first_char {
                 '👎' => {
                     bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
+
+                    if dating.initiator_reaction.is_some() {
+                        bail!("user abuses dislikes")
+                    }
+
                     db.set_dating_initiator_reaction(id, false).await?;
                     send_recommendation(&bot, &db, ChatId(dating.initiator_id))
                         .await?;
                 }
                 '💌' => {
                     bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
+
+                    if dating.initiator_reaction.is_some() {
+                        bail!("user abuses msglikes")
+                    }
 
                     let state = State::LikeMessage { dating };
                     crate::handle::print_current_state(
@@ -330,16 +339,29 @@ pub async fn handle_dating_callback(
                 }
                 '👍' => {
                     bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
+
+                    if dating.initiator_reaction.is_some() {
+                        bail!("user abuses likes")
+                    }
+
                     db.set_dating_initiator_reaction(id, true).await?;
                     send_recommendation(&bot, &db, ChatId(dating.initiator_id))
                         .await?;
                     send_like(&db, &bot, &dating, None).await?;
                 }
                 '💔' => {
+                    if dating.partner_reaction.is_some() {
+                        bail!("partner abuses dislikes")
+                    }
+
                     bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
                     db.set_dating_partner_reaction(id, false).await?
                 }
                 '❤' => {
+                    if dating.partner_reaction.is_some() {
+                        bail!("partner abuses likes")
+                    }
+
                     let initiator = db
                         .get_user(dating.initiator_id)
                         .await?
