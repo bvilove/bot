@@ -256,7 +256,7 @@ impl Database {
                             .and(
                                 datings::Column::Time.into_expr().gt(
                                     Expr::current_timestamp().sub(Expr::cust(
-                                        "interval '5 seconds'",
+                                        "interval '30 minutes'",
                                     )),
                                 ),
                             )
