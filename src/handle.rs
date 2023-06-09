@@ -47,12 +47,10 @@ pub async fn next_state(
                 .is_some()
             {
                 SetLocationFilter(p.clone())
+            } else if p.create_new {
+                SetAbout(p.clone())
             } else {
-                if p.create_new {
-                    SetAbout(p.clone())
-                } else {
-                    Start
-                }
+                Start
             }
         }
         SetLocationFilter(EditProfile { create_new: true, .. }) => {

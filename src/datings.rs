@@ -94,20 +94,17 @@ pub async fn send_recommendation(
         Some((dating, partner)) => {
             // Clean buttons of old message with this dating if it exist
             if let Some(msg) = dating.initiator_msg_id {
-                match bot
+                if let Err(e) = bot
                     .edit_message_reply_markup(
                         ChatId(dating.initiator_id),
                         MessageId(msg),
                     )
                     .await
                 {
-                    Err(e) => {
-                        sentry_anyhow::capture_anyhow(
-                            &anyhow::Error::from(e)
-                                .context("error while editing old message"),
-                        );
-                    }
-                    _ => {}
+                    sentry_anyhow::capture_anyhow(
+                        &anyhow::Error::from(e)
+                            .context("error while editing old message"),
+                    );
                 }
             }
 
