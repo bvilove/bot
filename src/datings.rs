@@ -104,7 +104,12 @@ pub async fn send_recommendation(
                     Err(RequestError::Api(ApiError::MessageToEditNotFound)) => {
                         warn!("message to edit not found")
                     }
-                    Err(e) => return Err(e.into()),
+                    Err(e) => {
+                        sentry_anyhow::capture_anyhow(
+                            &anyhow::Error::from(e)
+                                .context("error while editing old message"),
+                        );
+                    }
                     _ => {}
                 }
             }

@@ -396,14 +396,8 @@ pub async fn handle_set_subjects_callback(
                 utils::subjects_list(subjects)?
             )
         };
-        bot.edit_message_text(
-            msg.chat.id,
-            msg.id,
-            format!(
-                "{subjects_str}",
-            ),
-        )
-        .await?;
+        bot.edit_message_text(msg.chat.id, msg.id, format!("{subjects_str}",))
+            .await?;
 
         profile.subjects = Some(subjects.bits());
         next_state(&dialogue, &msg.chat, &state, profile, &bot, &db).await?;
@@ -457,9 +451,7 @@ pub async fn handle_set_subjects_filter_callback(
         bot.edit_message_text(
             msg.chat.id,
             msg.id,
-            format!(
-                "{subjects_filter_str}",
-            ),
+            format!("{subjects_filter_str}",),
         )
         .await?;
 
