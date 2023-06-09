@@ -3,7 +3,7 @@ resolver = "2"
 members = [".", "entities", "migration"]
 
 [package]
-name = "olympdating"
+name = "bvilovebot"
 version = "0.1.0"
 authors = ["Averyanov Alexander <alex@averyan.ru>"]
 edition = "2021"

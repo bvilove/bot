@@ -278,6 +278,37 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a3e2c3daef883ecc1b5d58c15adae93470a91d425f3532ba1695849656af3fc1"
 
 [[package]]
+name = "bvilovebot"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bitflags 2.3.1",
+ "chrono",
+ "csv",
+ "entities",
+ "futures-util",
+ "itertools 0.10.5",
+ "migration",
+ "phf",
+ "phf_codegen",
+ "rand",
+ "sea-orm",
+ "sentry",
+ "sentry-anyhow",
+ "sentry-tracing",
+ "serde",
+ "simsearch",
+ "strsim",
+ "strum",
+ "teloxide",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "bytecheck"
 version = "0.6.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1304,37 +1335,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03b4680b86d9cfafba8fc491dc9b6df26b68cf40e9e6cd73909194759a63c385"
 dependencies = [
  "memchr",
-]
-
-[[package]]
-name = "olympdating"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bitflags 2.3.1",
- "chrono",
- "csv",
- "entities",
- "futures-util",
- "itertools 0.10.5",
- "migration",
- "phf",
- "phf_codegen",
- "rand",
- "sea-orm",
- "sentry",
- "sentry-anyhow",
- "sentry-tracing",
- "serde",
- "simsearch",
- "strsim",
- "strum",
- "teloxide",
- "thiserror",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
 ]
 
 [[package]]
