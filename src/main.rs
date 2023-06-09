@@ -319,10 +319,21 @@ pub async fn start_profile_creation(
     msg: &Message,
     bot: &Bot,
 ) -> anyhow::Result<()> {
-    let profile = EditProfile::new(msg.chat.id.0, true);
-    let state = State::SetName(profile.clone());
-    handle::print_current_state(&state, None, bot, &msg.chat).await?;
-    dialogue.update(state).await?;
+    if bot.get_chat(msg.chat.id).await?.has_private_forwards().is_some() {
+        let keyboard = vec![vec![InlineKeyboardButton::callback(
+            "Я разрешил пересылку",
+            "✍",
+        )]];
+        let keyboard_markup = InlineKeyboardMarkup::new(keyboard);
+        bot.send_message(msg.chat.id, text::PLEASE_ALLOW_FORWARDING)
+            .reply_markup(keyboard_markup)
+            .await?;
+    } else {
+        let profile = EditProfile::new(msg.chat.id.0, true);
+        let state = State::SetName(profile.clone());
+        handle::print_current_state(&state, None, bot, &msg.chat).await?;
+        dialogue.update(state).await?;
+    }
 
     Ok(())
 }
