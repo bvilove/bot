@@ -5,4 +5,5 @@ pub mod prelude;
 pub mod datings;
 pub mod images;
 pub mod sea_orm_active_enums;
+pub mod states;
 pub mod users;

@@ -2,5 +2,5 @@
 
 pub use super::{
     datings::Entity as Datings, images::Entity as Images,
-    users::Entity as Users,
+    states::Entity as States, users::Entity as Users,
 };

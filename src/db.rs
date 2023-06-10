@@ -83,6 +83,16 @@ impl Database {
     }
 
     #[instrument(level = "debug", skip(self))]
+    pub async fn create_state(&self, id: i64) -> Result<()> {
+        if States::find_by_id(id).one(&self.conn).await?.is_none() {
+            let state =
+                entities::states::ActiveModel { id: ActiveValue::Set(id) };
+            States::insert(state).exec(&self.conn).await?;
+        }
+        Ok(())
+    }
+
+    #[instrument(level = "debug", skip(self))]
     pub async fn clean_images(&self, user_id: i64) -> Result<()> {
         Images::delete_many()
             .filter(images::Column::UserId.eq(user_id))

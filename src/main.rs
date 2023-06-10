@@ -418,6 +418,8 @@ async fn answer(
                 bot.send_message(msg.chat.id, text::PROFILE_DISABLED).await?;
             }
             Command::Start => {
+                db.create_state(msg.chat.id.0).await?;
+
                 let keyboard = vec![vec![InlineKeyboardButton::callback(
                     "Заполнить анкету ✍",
                     "✍",
