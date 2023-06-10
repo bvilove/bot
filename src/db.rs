@@ -1,5 +1,9 @@
 use anyhow::{Context, Result};
-use entities::{prelude::*, sea_orm_active_enums::LocationFilter, *};
+use entities::{
+    prelude::*,
+    sea_orm_active_enums::{ImageKind, LocationFilter},
+    *,
+};
 use migration::{Migrator, MigratorTrait};
 use sea_orm::{Database as SeaDatabase, DatabaseConnection, *};
 use sea_query::*;
@@ -40,20 +44,24 @@ impl Database {
     }
 
     #[instrument(level = "debug", skip(self))]
-    pub async fn get_images(&self, user_id: i64) -> Result<Vec<String>> {
+    pub async fn get_images(
+        &self,
+        user_id: i64,
+    ) -> Result<Vec<(String, ImageKind)>> {
         #[derive(FromQueryResult)]
         struct ImageTelegramId {
             telegram_id: String,
+            kind: ImageKind,
         }
         Ok(images::Entity::find()
             .filter(images::Column::UserId.eq(user_id))
             .select_only()
-            .column(images::Column::TelegramId)
+            .columns([images::Column::TelegramId, images::Column::Kind])
             .into_model::<ImageTelegramId>()
             .all(&self.conn)
             .await?
             .into_iter()
-            .map(|m| m.telegram_id)
+            .map(|m| (m.telegram_id, m.kind))
             .collect())
     }
 
@@ -62,12 +70,12 @@ impl Database {
         &self,
         user_id: i64,
         tg_id: String,
-        // data: Vec<u8>,
+        kind: ImageKind,
     ) -> Result<()> {
         let image = entities::images::ActiveModel {
             user_id: ActiveValue::Set(user_id),
             telegram_id: ActiveValue::Set(tg_id),
-            // data: ActiveValue::Set(data),
+            kind: ActiveValue::Set(kind),
             ..Default::default()
         };
         Images::insert(image).exec(&self.conn).await?;

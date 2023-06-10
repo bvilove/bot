@@ -1,13 +1,16 @@
 use std::sync::Arc;
 
 use anyhow::{bail, Context};
-use entities::{datings, sea_orm_active_enums::Gender};
+use entities::{
+    datings,
+    sea_orm_active_enums::{Gender, ImageKind},
+};
 use teloxide::{
     prelude::*,
     types::{
         Chat, InlineKeyboardButton, InlineKeyboardMarkup, InputFile,
-        InputMedia, InputMediaPhoto, KeyboardButton, KeyboardMarkup,
-        KeyboardRemove, MessageId,
+        InputMedia, InputMediaPhoto, InputMediaVideo, KeyboardButton,
+        KeyboardMarkup, KeyboardRemove, MessageId,
     },
     ApiError, RequestError,
 };
@@ -291,10 +294,18 @@ async fn send_user_photos(
     let user_images = db.get_images(user).await?;
 
     if !user_images.is_empty() {
-        let medias = user_images.into_iter().map(|id| {
+        let medias = user_images.into_iter().map(|(id, kind)| {
             let input_file = InputFile::file_id(id);
-            let input_media_photo = InputMediaPhoto::new(input_file);
-            InputMedia::Photo(input_media_photo)
+            match kind {
+                ImageKind::Image => {
+                    let input_media_photo = InputMediaPhoto::new(input_file);
+                    InputMedia::Photo(input_media_photo)
+                }
+                ImageKind::Video => {
+                    let input_media_video = InputMediaVideo::new(input_file);
+                    InputMedia::Video(input_media_video)
+                }
+            }
         });
         bot.send_media_group(ChatId(chat), medias).await?;
     }
