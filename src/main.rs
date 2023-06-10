@@ -48,7 +48,7 @@ impl ErrorHandler<anyhow::Error> for AppErrorHandler {
         self: Arc<Self>,
         error: anyhow::Error,
     ) -> futures_util::future::BoxFuture<'static, ()> {
-        error!("{}", error.to_string());
+        warn!("{}", error.to_string());
         sentry_anyhow::capture_anyhow(&error);
 
         Box::pin(async {})
