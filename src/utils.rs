@@ -3,7 +3,9 @@ use chrono::Datelike;
 use itertools::Itertools;
 use teloxide::{
     requests::Requester,
-    types::{ChatId, ChatKind, InlineKeyboardButton, InlineKeyboardMarkup, UserId},
+    types::{
+        ChatId, ChatKind, InlineKeyboardButton, InlineKeyboardMarkup, UserId,
+    },
 };
 
 use crate::{text, Bot, DatingPurpose, Subjects};
@@ -250,32 +252,34 @@ pub fn grade_from_graduation_year(graduation_year: i32) -> anyhow::Result<i32> {
     Ok(year)
 }
 
-pub async fn user_url(bot: &Bot, id: i64) -> anyhow::Result<url::Url> {
-    if has_privacy_settings(bot, id).await? {
+pub async fn user_url(bot: &Bot, id: i64) -> anyhow::Result<Option<url::Url>> {
+    let ChatKind::Private(private) = bot.get_chat(ChatId(id)).await?.kind else {
+        bail!("not private chat")
+    };
+
+    if let Some(username) = private.username {
+        let mut url =
+            url::Url::parse("tg://resolve").expect("tg url must be parsed");
+        url.set_query(Some(&format!("domain={username}")));
+        Ok(Some(url))
+    } else if !has_privacy_enabled(bot, id).await? {
         let mut url =
             url::Url::parse("tg://user").expect("tg url must be parsed");
         url.set_query(Some(&format!("id={id}")));
-        Ok(url)
+        Ok(Some(url))
     } else {
-        let mut url =
-            url::Url::parse("tg://resolve").expect("tg url must be parsed");
-        let ChatKind::Private(private) = bot.get_chat(ChatId(id)).await?.kind else {
-            bail!("not private chat")
-        };
-        let username = private.username.context("username must be set")?;
-        url.set_query(Some(&format!("domain={username}")));
-        Ok(url)
+        Ok(None)
     }
 }
 
-pub async fn has_privacy_settings(
+pub async fn has_privacy_enabled(bot: &Bot, user: i64) -> anyhow::Result<bool> {
+    Ok(bot.get_chat(ChatId(user)).await?.has_private_forwards().is_some())
+}
+
+pub async fn check_user_subscribed_channel(
     bot: &Bot,
     user: i64,
 ) -> anyhow::Result<bool> {
-    Ok(bot.get_chat(ChatId(user)).await?.has_private_forwards().is_none())
-}
-
-pub async fn check_user_subscribed_channel(bot: &Bot, user: i64) -> anyhow::Result<bool> {
     Ok(if let Ok(channel_id) = std::env::var("CHANNEL_ID") {
         let channel_id: i64 = channel_id.parse()?;
         let member = bot

@@ -106,7 +106,7 @@ pub async fn send_recommendation(
         return Ok(());
     };
 
-    if crate::utils::user_url(bot, chat.0).await.is_err() {
+    if crate::utils::user_url(bot, chat.0).await?.is_none() {
         let keyboard = vec![vec![InlineKeyboardButton::callback(
             "Я сделал юзернейм",
             "🚀",
@@ -115,7 +115,7 @@ pub async fn send_recommendation(
         bot.send_message(chat, text::PLEASE_ALLOW_FORWARDING)
             .reply_markup(keyboard_markup)
             .await?;
-        return Ok(())
+        return Ok(());
     }
 
     match db.get_partner(chat.0).await? {
@@ -292,7 +292,9 @@ pub async fn mutual_like(
 
     let initiator_keyboard = vec![vec![InlineKeyboardButton::url(
         "Открыть чат",
-        crate::utils::user_url(bot, partner.id).await?,
+        crate::utils::user_url(bot, partner.id)
+            .await?
+            .context("can't get url")?,
     )]];
     let initiator_keyboard_markup =
         InlineKeyboardMarkup::new(initiator_keyboard);

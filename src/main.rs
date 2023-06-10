@@ -330,7 +330,7 @@ pub async fn start_profile_creation(
         return Ok(());
     };
 
-    if utils::user_url(bot, msg.chat.id.0).await.is_err() {
+    if utils::user_url(bot, msg.chat.id.0).await?.is_none() {
         let keyboard = vec![vec![InlineKeyboardButton::callback(
             "Я сделал юзернейм",
             "✍",
