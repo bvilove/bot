@@ -408,7 +408,7 @@ pub async fn handle_set_photos(
     mut profile: EditProfile,
     state: State,
 ) -> anyhow::Result<()> {
-    let keyboard = vec![vec![KeyboardButton::new("Сохранить фото")]];
+    let keyboard = vec![vec![KeyboardButton::new("Сохранить")]];
     let keyboard_markup = KeyboardMarkup::new(keyboard).resize_keyboard(true);
 
     match msg.text() {
