@@ -339,6 +339,8 @@ pub async fn handle_like_msg(
         db.set_dating_initiator_reaction(d.id, false).await?;
         "Отправка лайка отменена"
     } else {
+        db.set_dating_initiator_reaction(d.id, true).await?;
+        send_like(&db, &bot, &d, Some(text.to_owned())).await?;
         "Лайк отправлен!"
     };
 
