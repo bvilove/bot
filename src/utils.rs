@@ -3,7 +3,7 @@ use chrono::Datelike;
 use itertools::Itertools;
 use teloxide::{
     requests::Requester,
-    types::{ChatId, ChatKind, InlineKeyboardButton, InlineKeyboardMarkup},
+    types::{ChatId, ChatKind, InlineKeyboardButton, InlineKeyboardMarkup, UserId},
 };
 
 use crate::{text, Bot, DatingPurpose, Subjects};
@@ -273,4 +273,16 @@ pub async fn has_privacy_settings(
     user: i64,
 ) -> anyhow::Result<bool> {
     Ok(bot.get_chat(ChatId(user)).await?.has_private_forwards().is_none())
+}
+
+pub async fn check_user_subscribed_channel(bot: &Bot, user: i64) -> anyhow::Result<bool> {
+    Ok(if let Ok(channel_id) = std::env::var("CHANNEL_ID") {
+        let channel_id: i64 = channel_id.parse()?;
+        let member = bot
+            .get_chat_member(ChatId(channel_id), UserId(user as u64))
+            .await?;
+        member.is_present()
+    } else {
+        true
+    })
 }

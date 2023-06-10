@@ -91,6 +91,33 @@ pub async fn send_recommendation(
     db: &Arc<Database>,
     chat: ChatId,
 ) -> anyhow::Result<()> {
+    if !crate::utils::check_user_subscribed_channel(bot, chat.0).await? {
+        let keyboard = vec![vec![InlineKeyboardButton::callback(
+            "Я подписался на канал",
+            "🚀",
+        )]];
+        let keyboard_markup = InlineKeyboardMarkup::new(keyboard);
+        bot.send_message(
+            chat,
+            "Пожалуйста, подпишитесь на наш канал https://t.me/bvilove",
+        )
+        .reply_markup(keyboard_markup)
+        .await?;
+        return Ok(());
+    };
+
+    if crate::utils::user_url(bot, chat.0).await.is_err() {
+        let keyboard = vec![vec![InlineKeyboardButton::callback(
+            "Я сделал юзернейм",
+            "🚀",
+        )]];
+        let keyboard_markup = InlineKeyboardMarkup::new(keyboard);
+        bot.send_message(chat, text::PLEASE_ALLOW_FORWARDING)
+            .reply_markup(keyboard_markup)
+            .await?;
+        return Ok(())
+    }
+
     match db.get_partner(chat.0).await? {
         Some((dating, partner)) => {
             // Clean buttons of old message with this dating if it exist
