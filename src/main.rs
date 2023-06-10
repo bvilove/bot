@@ -315,9 +315,9 @@ pub async fn start_profile_creation(
     msg: &Message,
     bot: &Bot,
 ) -> anyhow::Result<()> {
-    if bot.get_chat(msg.chat.id).await?.has_private_forwards().is_some() {
+    if utils::user_url(bot, msg.chat.id.0).await.is_err() {
         let keyboard = vec![vec![InlineKeyboardButton::callback(
-            "Я разрешил пересылку",
+            "Я сделал юзернейм",
             "✍",
         )]];
         let keyboard_markup = InlineKeyboardMarkup::new(keyboard);

@@ -753,7 +753,7 @@ pub async fn handle_callback(
                     let partner_keyboard =
                         vec![vec![InlineKeyboardButton::url(
                             "Открыть чат",
-                            crate::utils::user_url(initiator.id),
+                            crate::utils::user_url(&bot, initiator.id).await?,
                         )]];
                     let partner_keyboard_markup =
                         InlineKeyboardMarkup::new(partner_keyboard);

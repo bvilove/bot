@@ -265,7 +265,7 @@ pub async fn mutual_like(
 
     let initiator_keyboard = vec![vec![InlineKeyboardButton::url(
         "Открыть чат",
-        crate::utils::user_url(partner.id),
+        crate::utils::user_url(bot, partner.id).await?,
     )]];
     let initiator_keyboard_markup =
         InlineKeyboardMarkup::new(initiator_keyboard);

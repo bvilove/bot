@@ -1,8 +1,12 @@
+use anyhow::{bail, Context};
 use chrono::Datelike;
 use itertools::Itertools;
-use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
+use teloxide::{
+    requests::Requester,
+    types::{ChatId, ChatKind, InlineKeyboardButton, InlineKeyboardMarkup},
+};
 
-use crate::{text, DatingPurpose, Subjects};
+use crate::{text, Bot, DatingPurpose, Subjects};
 
 fn dating_purpose_name(purpose: DatingPurpose) -> anyhow::Result<&'static str> {
     Ok(match purpose {
@@ -246,8 +250,27 @@ pub fn grade_from_graduation_year(graduation_year: i32) -> anyhow::Result<i32> {
     Ok(year)
 }
 
-pub fn user_url(id: i64) -> url::Url {
-    let mut url = url::Url::parse("tg://user").expect("tg url must be parsed");
-    url.set_query(Some(&format!("id={id}")));
-    url
+pub async fn user_url(bot: &Bot, id: i64) -> anyhow::Result<url::Url> {
+    if has_privacy_settings(bot, id).await? {
+        let mut url =
+            url::Url::parse("tg://user").expect("tg url must be parsed");
+        url.set_query(Some(&format!("id={id}")));
+        Ok(url)
+    } else {
+        let mut url =
+            url::Url::parse("tg://resolve").expect("tg url must be parsed");
+        let ChatKind::Private(private) = bot.get_chat(ChatId(id)).await?.kind else {
+            bail!("not private chat")
+        };
+        let username = private.username.context("username must be set")?;
+        url.set_query(Some(&format!("domain={username}")));
+        Ok(url)
+    }
+}
+
+pub async fn has_privacy_settings(
+    bot: &Bot,
+    user: i64,
+) -> anyhow::Result<bool> {
+    Ok(bot.get_chat(ChatId(user)).await?.has_private_forwards().is_none())
 }
