@@ -86,6 +86,8 @@ async fn main() -> anyhow::Result<()> {
                 default_integrations: true,
                 attach_stacktrace: true,
                 traces_sample_rate: 1.0,
+                enable_profiling: true,
+                profiles_sample_rate: 1.0,
                 ..Default::default()
             }));
             Some(guard)

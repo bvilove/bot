@@ -28,7 +28,7 @@ phf = "0.11.1"
 strsim = "0.10.0"
 url = "2.4.0"
 thiserror = "1.0.40"
-sentry = "0.31.3"
+sentry = { version = "0.31.3", features = ["profiling"] }
 futures-util = "0.3.28"
 sentry-anyhow = "0.31.3"
 sentry-tracing = "0.31.3"
