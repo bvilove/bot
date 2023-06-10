@@ -426,10 +426,10 @@ pub async fn handle_set_photos(
         _ => {
             if profile.photos_count == 0 {
                 db.clean_images(msg.chat.id.0).await?;
-            } else if profile.photos_count >= 9 {
+            } else if profile.photos_count >= 10 {
                 bot.send_message(
                     msg.chat.id,
-                    "Невозможно добавить более 9 фото/видео",
+                    "Невозможно добавить более 10 фото/видео",
                 )
                 .reply_markup(keyboard_markup)
                 .await?;
@@ -467,7 +467,7 @@ pub async fn handle_set_photos(
     bot.send_message(
         msg.chat.id,
         format!(
-            "Добавлено {}/9 фото/видео. Добавить ещё?",
+            "Добавлено {}/10 фото/видео. Добавить ещё?",
             profile.photos_count
         ),
     )
