@@ -315,6 +315,27 @@ pub async fn start_profile_creation(
     msg: &Message,
     bot: &Bot,
 ) -> anyhow::Result<()> {
+    if let Ok(channel_id) = std::env::var("CHANNEL_ID") {
+        let channel_id: i64 = channel_id.parse()?;
+        let member = bot
+            .get_chat_member(ChatId(channel_id), UserId(msg.chat.id.0 as u64))
+            .await?;
+        if !member.is_present() {
+            let keyboard = vec![vec![InlineKeyboardButton::callback(
+                "Я подписался на канал",
+                "✍",
+            )]];
+            let keyboard_markup = InlineKeyboardMarkup::new(keyboard);
+            bot.send_message(
+                msg.chat.id,
+                "Пожалуйста, подпишитесь на наш канал https://t.me/bvilove",
+            )
+            .reply_markup(keyboard_markup)
+            .await?;
+            return Ok(());
+        }
+    };
+
     if utils::user_url(bot, msg.chat.id.0).await.is_err() {
         let keyboard = vec![vec![InlineKeyboardButton::callback(
             "Я сделал юзернейм",
