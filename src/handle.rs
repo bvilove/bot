@@ -477,7 +477,7 @@ pub async fn handle_callback(
             State::SetSubjects(e) => Ok(e.clone()),
             State::SetSubjectsFilter(e) => Ok(e.clone()),
             State::SetDatingPurpose(e) => Ok(e.clone()),
-            _ => bail!("failed to get profile from state")
+            _ => bail!("failed to get profile from state"),
         }
     }
 
@@ -527,19 +527,18 @@ pub async fn handle_callback(
             let mut profile = get_profile(&state)?;
 
             let purpose = match profile.dating_purpose {
-                Some(s) => {
-                    DatingPurpose::from_bits(s).context("purpose must be created")?
-                }
+                Some(s) => DatingPurpose::from_bits(s)
+                    .context("purpose must be created")?,
                 None => DatingPurpose::empty(),
             };
-        
+
             if last_chars == "continue" {
                 if purpose == DatingPurpose::empty() {
                     bail!("there must be at least 1 purpose")
                 }
-        
+
                 bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
-        
+
                 bot.edit_message_text(
                     msg.chat.id,
                     msg.id,
@@ -549,18 +548,19 @@ pub async fn handle_callback(
                     ),
                 )
                 .await?;
-        
+
                 profile.dating_purpose = Some(purpose.bits());
-                next_state(&dialogue, &msg.chat, &state, profile, &bot, &db).await?;
+                next_state(&dialogue, &msg.chat, &state, profile, &bot, &db)
+                    .await?;
             } else {
                 let purpose = purpose
                     ^ DatingPurpose::from_bits(last_chars.parse()?)
                         .context("purpose error")?;
-        
+
                 bot.edit_message_reply_markup(msg.chat.id, msg.id)
                     .reply_markup(utils::make_dating_purpose_keyboard(purpose))
                     .await?;
-        
+
                 profile.dating_purpose = Some(purpose.bits());
                 dialogue.update(State::SetDatingPurpose(profile)).await?;
             }
@@ -570,15 +570,14 @@ pub async fn handle_callback(
             let mut profile = get_profile(&state)?;
 
             let subjects = match profile.subjects {
-                Some(s) => {
-                    Subjects::from_bits(s).context("subjects must be created")?
-                }
+                Some(s) => Subjects::from_bits(s)
+                    .context("subjects must be created")?,
                 None => Subjects::empty(),
             };
-        
+
             if last_chars == "continue" {
                 bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
-        
+
                 let subjects_str = if subjects.is_empty() {
                     "Вы ничего не ботаете.".to_owned()
                 } else {
@@ -593,20 +592,22 @@ pub async fn handle_callback(
                     format!("{subjects_str}",),
                 )
                 .await?;
-        
+
                 profile.subjects = Some(subjects.bits());
-                next_state(&dialogue, &msg.chat, &state, profile, &bot, &db).await?;
+                next_state(&dialogue, &msg.chat, &state, profile, &bot, &db)
+                    .await?;
             } else {
                 let subjects = subjects
-                    ^ Subjects::from_bits(last_chars.parse()?).context("subjects error")?;
-        
+                    ^ Subjects::from_bits(last_chars.parse()?)
+                        .context("subjects error")?;
+
                 bot.edit_message_reply_markup(msg.chat.id, msg.id)
                     .reply_markup(utils::make_subjects_keyboard(
                         subjects,
                         utils::SubjectsKeyboardType::User,
                     ))
                     .await?;
-        
+
                 profile.subjects = Some(subjects.bits());
                 dialogue.update(State::SetSubjects(profile)).await?;
             }
@@ -616,21 +617,20 @@ pub async fn handle_callback(
             let mut profile = get_profile(&state)?;
 
             let subjects_filter = match profile.subjects_filter {
-                Some(s) => {
-                    Subjects::from_bits(s).context("subjects must be created")?
-                }
+                Some(s) => Subjects::from_bits(s)
+                    .context("subjects must be created")?,
                 None => Subjects::empty(),
             };
-        
+
             if last_chars == "continue" {
                 bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
-        
+
                 let subjects_filter_str = if subjects_filter.is_empty() {
                     "Не важно, что ботает другой человек.".to_owned()
                 } else {
                     format!(
-                        "Предметы, хотя бы один из которых должен ботать тот, кого вы \
-                         ищете: {}.",
+                        "Предметы, хотя бы один из которых должен ботать тот, \
+                         кого вы ищете: {}.",
                         utils::subjects_list(subjects_filter)?
                     )
                 };
@@ -640,20 +640,22 @@ pub async fn handle_callback(
                     format!("{subjects_filter_str}",),
                 )
                 .await?;
-        
+
                 profile.subjects_filter = Some(subjects_filter.bits());
-                next_state(&dialogue, &msg.chat, &state, profile, &bot, &db).await?;
+                next_state(&dialogue, &msg.chat, &state, profile, &bot, &db)
+                    .await?;
             } else {
                 let subjects_filter = subjects_filter
-                    ^ Subjects::from_bits(last_chars.parse()?).context("subjects error")?;
-        
+                    ^ Subjects::from_bits(last_chars.parse()?)
+                        .context("subjects error")?;
+
                 bot.edit_message_reply_markup(msg.chat.id, msg.id)
                     .reply_markup(utils::make_subjects_keyboard(
                         subjects_filter,
                         utils::SubjectsKeyboardType::Partner,
                     ))
                     .await?;
-        
+
                 profile.subjects_filter = Some(subjects_filter.bits());
                 dialogue.update(State::SetSubjectsFilter(profile)).await?;
             }

@@ -13,9 +13,7 @@ use teloxide::{
 };
 use tracing::*;
 
-use crate::{
-    db::Database, text, Bot, DatingPurpose, EditProfile, MyDialogue,
-};
+use crate::{db::Database, text, Bot, DatingPurpose, EditProfile, MyDialogue};
 
 fn format_user(user: &entities::users::Model) -> anyhow::Result<String> {
     let gender_emoji = match user.gender {
