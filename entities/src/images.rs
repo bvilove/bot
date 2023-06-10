@@ -2,6 +2,8 @@
 
 use sea_orm::entity::prelude::*;
 
+use super::sea_orm_active_enums::ImageKind;
+
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
 #[sea_orm(table_name = "images")]
 pub struct Model {
@@ -9,6 +11,7 @@ pub struct Model {
     pub id: i32,
     pub user_id: i64,
     pub telegram_id: String,
+    pub kind: ImageKind,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

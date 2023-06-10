@@ -11,6 +11,14 @@ pub enum Gender {
     Male,
 }
 #[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "image_kind")]
+pub enum ImageKind {
+    #[sea_orm(string_value = "image")]
+    Image,
+    #[sea_orm(string_value = "video")]
+    Video,
+}
+#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "location_filter")]
 pub enum LocationFilter {
     #[sea_orm(string_value = "same_city")]

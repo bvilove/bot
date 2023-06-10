@@ -33,7 +33,7 @@ pub const EDIT_LOCATION_FILTER: &str =
 pub const NO_CITY: &str =
     "Так как вы не указали свой город, мы будем искать людей по всей России";
 
-pub const REQUEST_SET_PHOTOS: &str = "Отправьте парочку своих фото";
+pub const REQUEST_SET_PHOTOS: &str = "Отправьте парочку своих фото или видео";
 
 pub const PROFILE_CREATION_STARTED: &str =
     "Начинаем создавать анкету, это не займёт у вас много времени.\nНе \

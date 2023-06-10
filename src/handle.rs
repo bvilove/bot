@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context};
 use db::Database;
-use entities::sea_orm_active_enums::{Gender, LocationFilter};
+use entities::sea_orm_active_enums::{Gender, ImageKind, LocationFilter};
 use teloxide::{
     // net::Download,
     prelude::*,
@@ -408,47 +408,56 @@ pub async fn handle_set_photos(
     mut profile: EditProfile,
     state: State,
 ) -> anyhow::Result<()> {
-    let Some(photo_sizes) = msg.photo() else {
-        match msg.text() {
-            Some(text) if text == "Без фото" => {
-                db.clean_images(msg.chat.id.0).await?;
-                next_state(&dialogue, &msg.chat, &state, profile, &bot, &db).await?;
-            },
-            Some(text) if text == "Сохранить фото" => {
-                next_state(&dialogue, &msg.chat, &state, profile, &bot, &db).await?;
-            },
-            _ => {
-                print_current_state(&state, Some(&profile), &bot, &msg.chat).await?;
-            }
-        };
-        return Ok(())
-    };
-
     let keyboard = vec![vec![KeyboardButton::new("Сохранить фото")]];
     let keyboard_markup = KeyboardMarkup::new(keyboard).resize_keyboard(true);
 
     if profile.photos_count == 0 {
         db.clean_images(msg.chat.id.0).await?;
     } else if profile.photos_count >= 9 {
-        bot.send_message(msg.chat.id, "Невозможно добавить более 9 фото")
+        bot.send_message(msg.chat.id, "Невозможно добавить более 9 фото/видео")
             .reply_markup(keyboard_markup)
             .await?;
         return Ok(());
     };
 
+    if let Some(photo_sizes) = msg.photo() {
+        let photo = &photo_sizes[photo_sizes.len() - 1];
+        let photo_file = bot.get_file(photo.file.clone().id).await?;
+
+        db.create_image(msg.chat.id.0, photo_file.id.clone(), ImageKind::Image)
+            .await?;
+    } else if let Some(video) = msg.video() {
+        let video_file = bot.get_file(video.file.clone().id).await?;
+
+        db.create_image(msg.chat.id.0, video_file.id.clone(), ImageKind::Video)
+            .await?;
+    } else {
+        match msg.text() {
+            Some(text) if text == "Без фото" => {
+                db.clean_images(msg.chat.id.0).await?;
+                next_state(&dialogue, &msg.chat, &state, profile, &bot, &db)
+                    .await?;
+            }
+            Some(text) if text == "Сохранить фото" => {
+                next_state(&dialogue, &msg.chat, &state, profile, &bot, &db)
+                    .await?;
+            }
+            _ => {
+                print_current_state(&state, Some(&profile), &bot, &msg.chat)
+                    .await?;
+            }
+        };
+        return Ok(());
+    };
+
     profile.photos_count += 1;
-
-    let photo = &photo_sizes[photo_sizes.len() - 1];
-    let photo_file = bot.get_file(photo.file.clone().id).await?;
-
-    // let mut photo_buf = vec![0u8; photo_file.size as usize];
-    // bot.download_file(&photo_file.path, &mut photo_buf).await?;
-
-    db.create_image(msg.chat.id.0, photo_file.id.clone()).await?;
 
     bot.send_message(
         msg.chat.id,
-        format!("Добавлено {}/9 фото. Добавить ещё?", profile.photos_count),
+        format!(
+            "Добавлено {}/9 фото/видео. Добавить ещё?",
+            profile.photos_count
+        ),
     )
     .reply_markup(keyboard_markup)
     .await?;
