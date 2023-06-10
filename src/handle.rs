@@ -6,7 +6,10 @@ use entities::sea_orm_active_enums::{Gender, LocationFilter};
 use teloxide::{
     // net::Download,
     prelude::*,
-    types::{Chat, KeyboardButton, KeyboardMarkup, KeyboardRemove},
+    types::{
+        Chat, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton,
+        KeyboardMarkup, KeyboardRemove,
+    },
 };
 use tracing::instrument;
 
@@ -374,168 +377,6 @@ pub async fn handle_set_grade(
 }
 
 #[instrument(level = "debug", skip(bot, db))]
-pub async fn handle_set_subjects_callback(
-    db: Arc<Database>,
-    bot: Bot,
-    dialogue: MyDialogue,
-    mut profile: EditProfile,
-    state: State,
-    q: CallbackQuery,
-) -> anyhow::Result<()> {
-    let text = q.data.context("callback data not provided")?;
-    let msg = q.message.context("callback without message")?;
-
-    let subjects = match profile.subjects {
-        Some(s) => {
-            Subjects::from_bits(s).context("subjects must be created")?
-        }
-        None => Subjects::empty(),
-    };
-
-    if text == "continue" {
-        bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
-
-        let subjects_str = if subjects.is_empty() {
-            "Вы ничего не ботаете.".to_owned()
-        } else {
-            format!(
-                "Предметы, которые вы ботаете: {}.",
-                utils::subjects_list(subjects)?
-            )
-        };
-        bot.edit_message_text(msg.chat.id, msg.id, format!("{subjects_str}",))
-            .await?;
-
-        profile.subjects = Some(subjects.bits());
-        next_state(&dialogue, &msg.chat, &state, profile, &bot, &db).await?;
-    } else {
-        let subjects = subjects
-            ^ Subjects::from_bits(text.parse()?).context("subjects error")?;
-
-        bot.edit_message_reply_markup(msg.chat.id, msg.id)
-            .reply_markup(utils::make_subjects_keyboard(
-                subjects,
-                utils::SubjectsKeyboardType::User,
-            ))
-            .await?;
-
-        profile.subjects = Some(subjects.bits());
-        dialogue.update(State::SetSubjects(profile)).await?;
-    }
-    Ok(())
-}
-
-#[instrument(level = "debug", skip(bot, db))]
-pub async fn handle_set_subjects_filter_callback(
-    db: Arc<Database>,
-    bot: Bot,
-    dialogue: MyDialogue,
-    mut profile: EditProfile,
-    state: State,
-    q: CallbackQuery,
-) -> anyhow::Result<()> {
-    let text = q.data.context("callback data not provided")?;
-    let msg = q.message.context("callback without message")?;
-
-    let subjects_filter = match profile.subjects_filter {
-        Some(s) => {
-            Subjects::from_bits(s).context("subjects must be created")?
-        }
-        None => Subjects::empty(),
-    };
-
-    if text == "continue" {
-        bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
-
-        let subjects_filter_str = if subjects_filter.is_empty() {
-            "Не важно, что ботает другой человек.".to_owned()
-        } else {
-            format!(
-                "Предметы, хотя бы один из которых должен ботать тот, кого вы \
-                 ищете: {}.",
-                utils::subjects_list(subjects_filter)?
-            )
-        };
-        bot.edit_message_text(
-            msg.chat.id,
-            msg.id,
-            format!("{subjects_filter_str}",),
-        )
-        .await?;
-
-        profile.subjects_filter = Some(subjects_filter.bits());
-        next_state(&dialogue, &msg.chat, &state, profile, &bot, &db).await?;
-    } else {
-        let subjects_filter = subjects_filter
-            ^ Subjects::from_bits(text.parse()?).context("subjects error")?;
-
-        bot.edit_message_reply_markup(msg.chat.id, msg.id)
-            .reply_markup(utils::make_subjects_keyboard(
-                subjects_filter,
-                utils::SubjectsKeyboardType::Partner,
-            ))
-            .await?;
-
-        profile.subjects_filter = Some(subjects_filter.bits());
-        dialogue.update(State::SetSubjectsFilter(profile)).await?;
-    }
-    Ok(())
-}
-
-#[instrument(level = "debug", skip(bot, db))]
-pub async fn handle_set_dating_purpose_callback(
-    db: Arc<Database>,
-    bot: Bot,
-    dialogue: MyDialogue,
-    mut profile: EditProfile,
-    state: State,
-    q: CallbackQuery,
-) -> anyhow::Result<()> {
-    let text = q.data.context("callback data not provided")?;
-    let msg = q.message.context("callback without message")?;
-
-    let purpose = match profile.dating_purpose {
-        Some(s) => {
-            DatingPurpose::from_bits(s).context("purpose must be created")?
-        }
-        None => DatingPurpose::empty(),
-    };
-
-    if text == "continue" {
-        if purpose == DatingPurpose::empty() {
-            bail!("there must be at least 1 purpose")
-        }
-
-        bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
-
-        bot.edit_message_text(
-            msg.chat.id,
-            msg.id,
-            format!(
-                "Вас интересует: {}.",
-                utils::dating_purpose_list(purpose)?
-            ),
-        )
-        .await?;
-
-        profile.dating_purpose = Some(purpose.bits());
-        next_state(&dialogue, &msg.chat, &state, profile, &bot, &db).await?;
-    } else {
-        let purpose = purpose
-            ^ DatingPurpose::from_bits(text.parse()?)
-                .context("purpose error")?;
-
-        bot.edit_message_reply_markup(msg.chat.id, msg.id)
-            .reply_markup(utils::make_dating_purpose_keyboard(purpose))
-            .await?;
-
-        profile.dating_purpose = Some(purpose.bits());
-        dialogue.update(State::SetDatingPurpose(profile)).await?;
-    }
-    Ok(())
-}
-
-#[instrument(level = "debug", skip(bot, db))]
 pub async fn handle_set_about(
     db: Arc<Database>,
     bot: Bot,
@@ -618,40 +459,300 @@ pub async fn handle_set_photos(
 }
 
 #[instrument(level = "debug", skip(bot, db))]
-pub async fn handle_edit_callback(
+pub async fn handle_callback(
     bot: Bot,
     db: Arc<Database>,
     dialogue: MyDialogue,
+    state: State,
     q: CallbackQuery,
 ) -> anyhow::Result<()> {
-    let text = q.data.context("callback data not provided")?;
+    let data = q.data.context("callback data not provided")?;
     let msg = q.message.context("callback without message")?;
 
-    use State::*;
+    let first_char = data.chars().next().context("first char not found")?;
+    let last_chars = data.chars().skip(1).collect::<String>();
 
-    let user = db.get_user(msg.chat.id.0).await?.context("user not found")?;
-    let p = EditProfile::from_model(user);
-    let state = match text.as_str() {
-        "Имя" => SetName(p.clone()),
-        "Предметы" => SetSubjects(p.clone()),
-        "О себе" => SetAbout(p.clone()),
-        "Город" => SetCity(p.clone()),
-        "Фото" => SetPhotos(p.clone()),
-        "Отмена" => {
-            bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
-            dialogue.exit().await?;
-            return Ok(());
+    fn get_profile(state: &State) -> anyhow::Result<EditProfile> {
+        match state {
+            State::SetSubjects(e) => Ok(e.clone()),
+            State::SetSubjectsFilter(e) => Ok(e.clone()),
+            State::SetDatingPurpose(e) => Ok(e.clone()),
+            _ => bail!("failed to get profile from state")
         }
-        _ => {
-            bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
-            crate::request::request_edit_profile(&bot, &msg.chat).await?;
-            return Ok(());
-        }
-    };
+    }
 
-    bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
-    print_current_state(&state, Some(&p), &bot, &msg.chat).await?;
-    dialogue.update(state).await?;
+    match first_char {
+        // Start profile creation
+        '✍' => {
+            bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
+            crate::start_profile_creation(&dialogue, &msg, &bot).await?;
+        }
+        // Find partner
+        '🚀' => {
+            bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
+            crate::datings::send_recommendation(&bot, &db, msg.chat.id).await?;
+        }
+        // Edit profile
+        'e' => {
+            use State::*;
+
+            let user =
+                db.get_user(msg.chat.id.0).await?.context("user not found")?;
+            let p = EditProfile::from_model(user);
+            let state = match last_chars.as_str() {
+                "Имя" => SetName(p.clone()),
+                "Предметы" => SetSubjects(p.clone()),
+                "О себе" => SetAbout(p.clone()),
+                "Город" => SetCity(p.clone()),
+                "Фото" => SetPhotos(p.clone()),
+                "Отмена" => {
+                    bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
+                    dialogue.exit().await?;
+                    return Ok(());
+                }
+                _ => {
+                    bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
+                    crate::request::request_edit_profile(&bot, &msg.chat)
+                        .await?;
+                    return Ok(());
+                }
+            };
+
+            bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
+            print_current_state(&state, Some(&p), &bot, &msg.chat).await?;
+            dialogue.update(state).await?;
+        }
+        // Dating purpose
+        'p' => {
+            let mut profile = get_profile(&state)?;
+
+            let purpose = match profile.dating_purpose {
+                Some(s) => {
+                    DatingPurpose::from_bits(s).context("purpose must be created")?
+                }
+                None => DatingPurpose::empty(),
+            };
+        
+            if last_chars == "continue" {
+                if purpose == DatingPurpose::empty() {
+                    bail!("there must be at least 1 purpose")
+                }
+        
+                bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
+        
+                bot.edit_message_text(
+                    msg.chat.id,
+                    msg.id,
+                    format!(
+                        "Вас интересует: {}.",
+                        utils::dating_purpose_list(purpose)?
+                    ),
+                )
+                .await?;
+        
+                profile.dating_purpose = Some(purpose.bits());
+                next_state(&dialogue, &msg.chat, &state, profile, &bot, &db).await?;
+            } else {
+                let purpose = purpose
+                    ^ DatingPurpose::from_bits(last_chars.parse()?)
+                        .context("purpose error")?;
+        
+                bot.edit_message_reply_markup(msg.chat.id, msg.id)
+                    .reply_markup(utils::make_dating_purpose_keyboard(purpose))
+                    .await?;
+        
+                profile.dating_purpose = Some(purpose.bits());
+                dialogue.update(State::SetDatingPurpose(profile)).await?;
+            }
+        }
+        // Subjects
+        's' => {
+            let mut profile = get_profile(&state)?;
+
+            let subjects = match profile.subjects {
+                Some(s) => {
+                    Subjects::from_bits(s).context("subjects must be created")?
+                }
+                None => Subjects::empty(),
+            };
+        
+            if last_chars == "continue" {
+                bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
+        
+                let subjects_str = if subjects.is_empty() {
+                    "Вы ничего не ботаете.".to_owned()
+                } else {
+                    format!(
+                        "Предметы, которые вы ботаете: {}.",
+                        utils::subjects_list(subjects)?
+                    )
+                };
+                bot.edit_message_text(
+                    msg.chat.id,
+                    msg.id,
+                    format!("{subjects_str}",),
+                )
+                .await?;
+        
+                profile.subjects = Some(subjects.bits());
+                next_state(&dialogue, &msg.chat, &state, profile, &bot, &db).await?;
+            } else {
+                let subjects = subjects
+                    ^ Subjects::from_bits(last_chars.parse()?).context("subjects error")?;
+        
+                bot.edit_message_reply_markup(msg.chat.id, msg.id)
+                    .reply_markup(utils::make_subjects_keyboard(
+                        subjects,
+                        utils::SubjectsKeyboardType::User,
+                    ))
+                    .await?;
+        
+                profile.subjects = Some(subjects.bits());
+                dialogue.update(State::SetSubjects(profile)).await?;
+            }
+        }
+        // Subjects filter
+        'd' => {
+            let mut profile = get_profile(&state)?;
+
+            let subjects_filter = match profile.subjects_filter {
+                Some(s) => {
+                    Subjects::from_bits(s).context("subjects must be created")?
+                }
+                None => Subjects::empty(),
+            };
+        
+            if last_chars == "continue" {
+                bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
+        
+                let subjects_filter_str = if subjects_filter.is_empty() {
+                    "Не важно, что ботает другой человек.".to_owned()
+                } else {
+                    format!(
+                        "Предметы, хотя бы один из которых должен ботать тот, кого вы \
+                         ищете: {}.",
+                        utils::subjects_list(subjects_filter)?
+                    )
+                };
+                bot.edit_message_text(
+                    msg.chat.id,
+                    msg.id,
+                    format!("{subjects_filter_str}",),
+                )
+                .await?;
+        
+                profile.subjects_filter = Some(subjects_filter.bits());
+                next_state(&dialogue, &msg.chat, &state, profile, &bot, &db).await?;
+            } else {
+                let subjects_filter = subjects_filter
+                    ^ Subjects::from_bits(last_chars.parse()?).context("subjects error")?;
+        
+                bot.edit_message_reply_markup(msg.chat.id, msg.id)
+                    .reply_markup(utils::make_subjects_keyboard(
+                        subjects_filter,
+                        utils::SubjectsKeyboardType::Partner,
+                    ))
+                    .await?;
+        
+                profile.subjects_filter = Some(subjects_filter.bits());
+                dialogue.update(State::SetSubjectsFilter(profile)).await?;
+            }
+        }
+        // Dating response callbacks
+        '👎' | '💌' | '👍' | '💔' | '❤' => {
+            let id = last_chars.parse()?;
+            let dating = db.get_dating(id).await?;
+
+            match first_char {
+                '👎' => {
+                    bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
+
+                    if dating.initiator_reaction.is_some() {
+                        bail!("user abuses dislikes")
+                    }
+
+                    db.set_dating_initiator_reaction(id, false).await?;
+                    crate::datings::send_recommendation(
+                        &bot,
+                        &db,
+                        ChatId(dating.initiator_id),
+                    )
+                    .await?;
+                }
+                '💌' => {
+                    bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
+
+                    if dating.initiator_reaction.is_some() {
+                        bail!("user abuses msglikes")
+                    }
+
+                    let state = State::LikeMessage { dating };
+                    crate::handle::print_current_state(
+                        &state, None, &bot, &msg.chat,
+                    )
+                    .await?;
+                    dialogue.update(state).await?;
+                }
+                '👍' => {
+                    bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
+
+                    if dating.initiator_reaction.is_some() {
+                        bail!("user abuses likes")
+                    }
+
+                    db.set_dating_initiator_reaction(id, true).await?;
+                    crate::datings::send_recommendation(
+                        &bot,
+                        &db,
+                        ChatId(dating.initiator_id),
+                    )
+                    .await?;
+                    crate::datings::send_like(&db, &bot, &dating, None).await?;
+                }
+                '💔' => {
+                    if dating.partner_reaction.is_some() {
+                        bail!("partner abuses dislikes")
+                    }
+
+                    bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
+                    db.set_dating_partner_reaction(id, false).await?
+                }
+                '❤' => {
+                    if dating.partner_reaction.is_some() {
+                        bail!("partner abuses likes")
+                    }
+
+                    let initiator = db
+                        .get_user(dating.initiator_id)
+                        .await?
+                        .context("dating initiator not found")?;
+
+                    let partner_keyboard =
+                        vec![vec![InlineKeyboardButton::url(
+                            "Открыть чат",
+                            crate::utils::user_url(initiator.id),
+                        )]];
+                    let partner_keyboard_markup =
+                        InlineKeyboardMarkup::new(partner_keyboard);
+                    if let Err(e) = bot
+                        .edit_message_reply_markup(msg.chat.id, msg.id)
+                        .reply_markup(partner_keyboard_markup)
+                        .await
+                    {
+                        sentry_anyhow::capture_anyhow(
+                            &anyhow::Error::from(e).context(
+                                "error editing mutual like partner's message",
+                            ),
+                        );
+                    }
+
+                    crate::datings::mutual_like(&bot, &db, &dating).await?;
+                }
+                _ => bail!("unknown callback"),
+            }
+        }
+        _ => bail!("unknown callback"),
+    }
 
     Ok(())
 }

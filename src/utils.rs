@@ -90,7 +90,14 @@ pub fn make_subjects_keyboard(
                 } else {
                     subject_name(subject).unwrap().to_owned()
                 },
-                subject.bits().to_string(),
+                format!(
+                    "{}{}",
+                    match tp {
+                        SubjectsKeyboardType::Partner => "d",
+                        SubjectsKeyboardType::User => "s",
+                    },
+                    subject.bits().to_string()
+                ),
             )
         })
         .chunks(3)
@@ -98,23 +105,25 @@ pub fn make_subjects_keyboard(
         .map(|row| row.collect())
         .collect();
 
-    let text = match tp {
-        SubjectsKeyboardType::Partner => {
+    let (text, cont) = match tp {
+        SubjectsKeyboardType::Partner => (
             if selected.is_empty() {
                 text::SUBJECTS_PARTNER_EMPTY
             } else {
                 text::SUBJECTS_CONTINUE
-            }
-        }
-        SubjectsKeyboardType::User => {
+            },
+            "dcontinue",
+        ),
+        SubjectsKeyboardType::User => (
             if selected.is_empty() {
                 text::SUBJECTS_USER_EMPTY
             } else {
                 text::SUBJECTS_CONTINUE
-            }
-        }
+            },
+            "scontinue",
+        ),
     };
-    keyboard.push(vec![InlineKeyboardButton::callback(text, "continue")]);
+    keyboard.push(vec![InlineKeyboardButton::callback(text, cont)]);
     InlineKeyboardMarkup::new(keyboard)
 }
 
@@ -130,7 +139,7 @@ pub fn make_dating_purpose_keyboard(
                 } else {
                     dating_purpose_name(purpose).unwrap().to_owned()
                 },
-                purpose.bits().to_string(),
+                format!("p{}", purpose.bits().to_string()),
             )
         })
         .chunks(3)
@@ -141,7 +150,7 @@ pub fn make_dating_purpose_keyboard(
     if selected != DatingPurpose::empty() {
         keyboard.push(vec![InlineKeyboardButton::callback(
             "Продолжить",
-            "continue",
+            "pcontinue",
         )]);
     }
     InlineKeyboardMarkup::new(keyboard)

@@ -14,7 +14,7 @@ use teloxide::{
 use tracing::*;
 
 use crate::{
-    db::Database, text, Bot, DatingPurpose, EditProfile, MyDialogue, State,
+    db::Database, text, Bot, DatingPurpose, EditProfile, MyDialogue,
 };
 
 fn format_user(user: &entities::users::Model) -> anyhow::Result<String> {
@@ -241,7 +241,7 @@ pub async fn send_like(
     Ok(())
 }
 
-async fn mutual_like(
+pub async fn mutual_like(
     bot: &Bot,
     db: &Arc<Database>,
     dating: &datings::Model,
@@ -284,114 +284,6 @@ async fn mutual_like(
     Ok(())
 }
 
-pub async fn handle_dating_callback(
-    db: Arc<Database>,
-    bot: Bot,
-    q: CallbackQuery,
-    dialogue: crate::MyDialogue,
-) -> anyhow::Result<()> {
-    let text = q.data.context("callback data not provided")?;
-    let msg = q.message.context("callback without message")?;
-
-    let first_char = text.chars().next().context("first char not found")?;
-
-    match first_char {
-        '✍' => {
-            bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
-            crate::start_profile_creation(&dialogue, &msg, &bot).await?;
-        }
-        '🚀' => {
-            bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
-            send_recommendation(&bot, &db, msg.chat.id).await?;
-        }
-        _ => {
-            let id = text.chars().skip(1).collect::<String>().parse::<i32>()?;
-            let dating = db.get_dating(id).await?;
-
-            match first_char {
-                '👎' => {
-                    bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
-
-                    if dating.initiator_reaction.is_some() {
-                        bail!("user abuses dislikes")
-                    }
-
-                    db.set_dating_initiator_reaction(id, false).await?;
-                    send_recommendation(&bot, &db, ChatId(dating.initiator_id))
-                        .await?;
-                }
-                '💌' => {
-                    bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
-
-                    if dating.initiator_reaction.is_some() {
-                        bail!("user abuses msglikes")
-                    }
-
-                    let state = State::LikeMessage { dating };
-                    crate::handle::print_current_state(
-                        &state, None, &bot, &msg.chat,
-                    )
-                    .await?;
-                    dialogue.update(state).await?;
-                }
-                '👍' => {
-                    bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
-
-                    if dating.initiator_reaction.is_some() {
-                        bail!("user abuses likes")
-                    }
-
-                    db.set_dating_initiator_reaction(id, true).await?;
-                    send_recommendation(&bot, &db, ChatId(dating.initiator_id))
-                        .await?;
-                    send_like(&db, &bot, &dating, None).await?;
-                }
-                '💔' => {
-                    if dating.partner_reaction.is_some() {
-                        bail!("partner abuses dislikes")
-                    }
-
-                    bot.edit_message_reply_markup(msg.chat.id, msg.id).await?;
-                    db.set_dating_partner_reaction(id, false).await?
-                }
-                '❤' => {
-                    if dating.partner_reaction.is_some() {
-                        bail!("partner abuses likes")
-                    }
-
-                    let initiator = db
-                        .get_user(dating.initiator_id)
-                        .await?
-                        .context("dating initiator not found")?;
-
-                    let partner_keyboard =
-                        vec![vec![InlineKeyboardButton::url(
-                            "Открыть чат",
-                            crate::utils::user_url(initiator.id),
-                        )]];
-                    let partner_keyboard_markup =
-                        InlineKeyboardMarkup::new(partner_keyboard);
-                    if let Err(e) = bot
-                        .edit_message_reply_markup(msg.chat.id, msg.id)
-                        .reply_markup(partner_keyboard_markup)
-                        .await
-                    {
-                        sentry_anyhow::capture_anyhow(
-                            &anyhow::Error::from(e).context(
-                                "error editing mutual like partner's message",
-                            ),
-                        );
-                    }
-
-                    mutual_like(&bot, &db, &dating).await?;
-                }
-                _ => bail!("unknown callback"),
-            }
-        }
-    }
-    Ok(())
-}
-
 async fn send_user_photos(
     bot: &Bot,
     db: &Arc<Database>,
@@ -427,18 +319,18 @@ pub async fn handle_like_msg(
     msg: Message,
     d: entities::datings::Model,
 ) -> anyhow::Result<()> {
-    let text = msg.text().context("msg without text")?.to_owned();
+    let Some(text) = msg.text() else {
+        bot.send_message(msg.chat.id, "Лайк может содержать только текст! Для отмены отправьте \"Отмена\".").await?;
+        bail!("message without text")
+    };
 
-    let msg_to_send = match text.as_str() {
-        "Отмена" => {
-            db.set_dating_initiator_reaction(d.id, false).await?;
-            "Отправка лайка отменена"
-        }
-        _ => {
-            db.set_dating_initiator_reaction(d.id, true).await?;
-            send_like(&db, &bot, &d, Some(text)).await?;
-            "Лайк отправлен!"
-        }
+    let msg_to_send = if text == "Отмена"
+        || text.chars().next().context("empty string")? == '/'
+    {
+        db.set_dating_initiator_reaction(d.id, false).await?;
+        "Отправка лайка отменена"
+    } else {
+        "Лайк отправлен!"
     };
 
     bot.send_message(msg.chat.id, msg_to_send)

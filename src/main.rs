@@ -152,24 +152,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .branch(
             Update::filter_callback_query()
-                // edit profile
-                .branch(
-                    dptree::case![State::SetSubjects(a)]
-                        .endpoint(handle_set_subjects_callback),
-                )
-                .branch(
-                    dptree::case![State::SetSubjectsFilter(a)]
-                        .endpoint(handle_set_subjects_filter_callback),
-                )
-                .branch(
-                    dptree::case![State::SetDatingPurpose(a)]
-                        .endpoint(handle_set_dating_purpose_callback),
-                )
-                // others
-                .branch(
-                    dptree::case![State::Edit].endpoint(handle_edit_callback),
-                )
-                .branch(dptree::endpoint(datings::handle_dating_callback)),
+                .branch(dptree::endpoint(handle::handle_callback)),
         );
 
     let database = db::Database::new().await?;

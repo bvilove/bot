@@ -3,7 +3,7 @@ use entities::{prelude::*, sea_orm_active_enums::LocationFilter, *};
 use migration::{Migrator, MigratorTrait};
 use sea_orm::{Database as SeaDatabase, DatabaseConnection, *};
 use sea_query::*;
-use tracing::{log::LevelFilter, instrument};
+use tracing::{instrument, log::LevelFilter};
 
 pub struct Database {
     conn: DatabaseConnection,

@@ -198,7 +198,7 @@ pub async fn request_edit_profile(
     let keyboard: Vec<Vec<_>> =
         ["Имя", "Предметы", "О себе", "Город", "Фото", "Отмена"]
             .into_iter()
-            .map(|i| InlineKeyboardButton::callback(i, i))
+            .map(|i| InlineKeyboardButton::callback(i, format!("e{i}")))
             .chunks(3)
             .into_iter()
             .map(|row| row.collect())
