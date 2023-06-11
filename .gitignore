@@ -3,3 +3,4 @@
 .direnv
 postgres
 result
+.vscode
