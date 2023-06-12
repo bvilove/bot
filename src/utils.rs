@@ -1,5 +1,4 @@
-use anyhow::{bail, Context};
-use chrono::Datelike;
+use anyhow::bail;
 use itertools::Itertools;
 use teloxide::{
     requests::Requester,
@@ -8,69 +7,11 @@ use teloxide::{
     },
 };
 
-use crate::{text, Bot, DatingPurpose, Subjects};
-
-fn dating_purpose_name(purpose: DatingPurpose) -> anyhow::Result<&'static str> {
-    Ok(match purpose {
-        DatingPurpose::Friendship => "Дружба 🧑‍🤝‍🧑",
-        DatingPurpose::Studies => "Учёба 📚",
-        DatingPurpose::Relationship => "Отношения 💕",
-        _ => anyhow::bail!("unknown subject"),
-    })
-}
-
-fn subject_name(subject: Subjects) -> anyhow::Result<&'static str> {
-    Ok(match subject {
-        Subjects::Art => "Искусство 🎨",
-        Subjects::Astronomy => "Астрономия 🌌",
-        Subjects::Biology => "Биология 🔬",
-        Subjects::Chemistry => "Химия 🧪",
-        Subjects::Chinese => "Китайский 🇨🇳",
-        Subjects::Ecology => "Экология ♻️",
-        Subjects::Economics => "Экономика 💶",
-        Subjects::English => "Английский 🇬🇧",
-        Subjects::French => "Французский 🇫🇷",
-        Subjects::Geography => "География 🌎",
-        Subjects::German => "Немецкий 🇩🇪",
-        Subjects::History => "История 📰",
-        Subjects::Informatics => "Информатика 💻",
-        Subjects::Italian => "Итальянский 🇮🇹",
-        Subjects::Law => "Право 👨‍⚖️",
-        Subjects::Literature => "Литература 📖",
-        Subjects::Math => "Математика 📐",
-        Subjects::Physics => "Физика ☢️",
-        Subjects::Russian => "Русский 🇷🇺",
-        Subjects::Safety => "ОБЖ 🪖",
-        Subjects::Social => "Обществознание 👫",
-        Subjects::Spanish => "Испанский 🇪🇸",
-        Subjects::Sport => "Физкультура 🏐",
-        Subjects::Technology => "Технология 🚜",
-        _ => anyhow::bail!("unknown subject"),
-    })
-}
-
-pub fn subjects_list(subjects: Subjects) -> anyhow::Result<String> {
-    Ok(Subjects::all()
-        .into_iter()
-        .filter(|s| subjects.contains(*s))
-        .map(|s| subject_name(s).unwrap())
-        .sorted_by(|first, other| {
-            first.to_lowercase().cmp(&other.to_lowercase())
-        })
-        .enumerate()
-        .map(|(i, s)| if i != 0 { format!(", {}", s) } else { s.to_owned() })
-        .collect())
-}
-
-pub fn dating_purpose_list(purpose: DatingPurpose) -> anyhow::Result<String> {
-    Ok(DatingPurpose::all()
-        .into_iter()
-        .filter(|s| purpose.contains(*s))
-        .map(|s| dating_purpose_name(s).unwrap())
-        .enumerate()
-        .map(|(i, s)| if i != 0 { format!(", {}", s) } else { s.to_owned() })
-        .collect())
-}
+use crate::{
+    text,
+    types::{DatingPurpose, Subjects},
+    Bot,
+};
 
 pub enum SubjectsKeyboardType {
     User,
@@ -84,17 +25,18 @@ pub fn make_subjects_keyboard(
     let mut keyboard: Vec<Vec<_>> = Subjects::all()
         .into_iter()
         .sorted_by(|first, other| {
-            subject_name(*first)
+            first
+                .name()
                 .unwrap()
                 .to_lowercase()
-                .cmp(&subject_name(*other).unwrap().to_lowercase())
+                .cmp(&other.name().unwrap().to_lowercase())
         })
         .map(|subject| {
             InlineKeyboardButton::callback(
                 if selected.contains(subject) {
-                    format!("✅ {}", subject_name(subject).unwrap())
+                    format!("✅ {}", subject.name().unwrap())
                 } else {
-                    subject_name(subject).unwrap().to_owned()
+                    subject.name().unwrap().to_owned()
                 },
                 format!(
                     "{}{}",
@@ -141,9 +83,9 @@ pub fn make_dating_purpose_keyboard(
         .map(|purpose| {
             InlineKeyboardButton::callback(
                 if selected.contains(purpose) {
-                    format!("✅ {}", dating_purpose_name(purpose).unwrap())
+                    format!("✅ {}", purpose.name().unwrap())
                 } else {
-                    dating_purpose_name(purpose).unwrap().to_owned()
+                    purpose.name().unwrap().to_owned()
                 },
                 format!("p{}", purpose.bits().to_string()),
             )
@@ -227,30 +169,6 @@ pub fn make_dating_purpose_keyboard(
 //     )]);
 //     InlineKeyboardMarkup::new(keyboard)
 // }
-
-pub fn graduation_year_from_grade(grade: i32) -> anyhow::Result<i32> {
-    let date = chrono::Local::now();
-
-    let year = if date.month() < 9 {
-        date.year() + (11 - grade)
-    } else {
-        date.year() + (11 - grade) + 1
-    };
-
-    Ok(year)
-}
-
-pub fn grade_from_graduation_year(graduation_year: i32) -> anyhow::Result<i32> {
-    let date = chrono::Local::now();
-
-    let year = if date.month() < 9 {
-        11 - (graduation_year - date.year())
-    } else {
-        11 - (graduation_year - date.year()) + 1
-    };
-
-    Ok(year)
-}
 
 pub async fn user_url(bot: &Bot, id: i64) -> anyhow::Result<Option<url::Url>> {
     let ChatKind::Private(private) = bot.get_chat(ChatId(id)).await?.kind else {

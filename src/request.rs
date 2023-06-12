@@ -8,7 +8,11 @@ use teloxide::{
     },
 };
 
-use crate::{cities, text, utils, Bot, DatingPurpose, EditProfile, Subjects};
+use crate::{
+    cities, text,
+    types::{DatingPurpose, Subjects},
+    utils, Bot, EditProfile,
+};
 
 pub async fn request_set_location_filter(
     bot: &Bot,
@@ -148,8 +152,7 @@ pub async fn request_set_dating_purpose(
     bot.send_message(chat.id, text::REQUEST_SET_DATING_PURPOSE)
         .reply_markup(utils::make_dating_purpose_keyboard(
             match p.dating_purpose {
-                Some(d) => DatingPurpose::from_bits(d)
-                    .context("dating purpose must be created")?,
+                Some(d) => DatingPurpose::try_from(d)?,
                 None => DatingPurpose::default(),
             },
         ))

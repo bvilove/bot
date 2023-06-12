@@ -14,8 +14,10 @@ use teloxide::{
 use tracing::instrument;
 
 use crate::{
-    cities, db, text, utils, Bot, DatingPurpose, EditProfile, MyDialogue,
-    State, Subjects,
+    cities::{self, City},
+    db, text,
+    types::{DatingPurpose, Subjects, GraduationYear, Grade},
+    utils, Bot, EditProfile, MyDialogue, State,
 };
 
 #[instrument(level = "debug", skip(bot, db))]
@@ -186,9 +188,9 @@ pub async fn handle_set_city(
 
         //     bot.send_message(msg.chat.id, cities).await?;
         // }
-        _ => match crate::cities::find_city(text) {
-            Some(id) => {
-                profile.city = Some(Some(id));
+        _ => match text.parse::<City>() {
+            Ok(city) => {
+                profile.city = Some(city.into());
                 dialogue.update(State::SetCity(profile)).await?;
 
                 let keyboard = vec![vec![
@@ -197,17 +199,11 @@ pub async fn handle_set_city(
                 ]];
                 let keyboard_markup =
                     KeyboardMarkup::new(keyboard).resize_keyboard(true);
-                bot.send_message(
-                    msg.chat.id,
-                    format!(
-                        "Ваш город - {}?",
-                        crate::cities::format_city(Some(id))?
-                    ),
-                )
-                .reply_markup(keyboard_markup)
-                .await?;
+                bot.send_message(msg.chat.id, format!("Ваш город - {city}?",))
+                    .reply_markup(keyboard_markup)
+                    .await?;
             }
-            None => {
+            Err(_) => {
                 let keyboard = vec![vec![KeyboardButton::new("Не указывать")]];
                 let keyboard_markup =
                     KeyboardMarkup::new(keyboard).resize_keyboard(true);
@@ -346,20 +342,20 @@ pub async fn handle_set_grade(
     let Ok(grade) = msg
         .text()
         .context("no text in message")?
-        .parse::<i32>()
+        .parse::<i8>()
     else {
         print_current_state(&state, Some(&profile), &bot, &msg.chat).await?;
         return Ok(())
     };
 
-    if !(1..=11).contains(&grade) {
+    let Ok(grade) = Grade::try_from(grade) else {
         print_current_state(&state, Some(&profile), &bot, &msg.chat).await?;
         return Ok(());
-    }
+    };
 
-    let graduation_year = utils::graduation_year_from_grade(grade)?;
+    let graduation_year: GraduationYear = grade.into();
 
-    profile.graduation_year = Some(graduation_year as i16);
+    profile.graduation_year = Some(graduation_year.into());
     next_state(&dialogue, &msg.chat, &state, profile, &bot, &db).await?;
 
     // bot.send_message(
@@ -548,8 +544,7 @@ pub async fn handle_callback(
             let mut profile = get_profile(&state)?;
 
             let purpose = match profile.dating_purpose {
-                Some(s) => DatingPurpose::from_bits(s)
-                    .context("purpose must be created")?,
+                Some(s) => DatingPurpose::try_from(s)?,
                 None => DatingPurpose::empty(),
             };
 
@@ -563,10 +558,7 @@ pub async fn handle_callback(
                 bot.edit_message_text(
                     msg.chat.id,
                     msg.id,
-                    format!(
-                        "Вас интересует: {}.",
-                        utils::dating_purpose_list(purpose)?
-                    ),
+                    format!("Вас интересует: {purpose}.",),
                 )
                 .await?;
 
@@ -602,10 +594,7 @@ pub async fn handle_callback(
                 let subjects_str = if subjects.is_empty() {
                     "Вы ничего не ботаете.".to_owned()
                 } else {
-                    format!(
-                        "Предметы, которые вы ботаете: {}.",
-                        utils::subjects_list(subjects)?
-                    )
+                    format!("Предметы, которые вы ботаете: {subjects}.",)
                 };
                 bot.edit_message_text(
                     msg.chat.id,
@@ -651,8 +640,7 @@ pub async fn handle_callback(
                 } else {
                     format!(
                         "Предметы, хотя бы один из которых должен ботать тот, \
-                         кого вы ищете: {}.",
-                        utils::subjects_list(subjects_filter)?
+                         кого вы ищете: {subjects_filter}.",
                     )
                 };
                 bot.edit_message_text(

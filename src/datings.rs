@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::{bail, Context};
 use entities::{
     datings,
-    sea_orm_active_enums::{Gender, ImageKind},
+    sea_orm_active_enums::{ImageKind},
 };
 use teloxide::{
     prelude::*,
@@ -16,42 +16,7 @@ use teloxide::{
 };
 use tracing::*;
 
-use crate::{db::Database, text, Bot, DatingPurpose, EditProfile, MyDialogue};
-
-fn format_user(user: &entities::users::Model) -> anyhow::Result<String> {
-    let gender_emoji = match user.gender {
-        Gender::Male => "♂️",
-        Gender::Female => "♀️",
-    };
-
-    let subjects = if user.subjects != 0 {
-        format!(
-            "Ботает: {}",
-            crate::utils::subjects_list(
-                crate::Subjects::from_bits(user.subjects)
-                    .context("subjects must be created")?,
-            )?
-        )
-    } else {
-        "Ничего не ботает".to_owned()
-    };
-
-    let purpose = crate::utils::dating_purpose_list(
-        DatingPurpose::from_bits(user.dating_purpose)
-            .context("purpose must be created")?,
-    )?;
-
-    let grade =
-        crate::utils::grade_from_graduation_year(user.graduation_year.into())?;
-
-    let city = crate::cities::format_city(user.city)?;
-
-    Ok(format!(
-        "{gender_emoji} {}, {grade} класс.\n🔎 Интересует: {purpose}.\n📚 \
-         {subjects}.\n🧭 {city}.\n\n{}",
-        user.name, user.about
-    ))
-}
+use crate::{db::Database, text, Bot, types::{PublicProfile}, EditProfile, MyDialogue};
 
 pub async fn send_profile(
     bot: &Bot,
@@ -60,11 +25,12 @@ pub async fn send_profile(
 ) -> anyhow::Result<()> {
     let user =
         db.get_user(id).await?.context("user to send profile not found")?;
+    
+    let profile: PublicProfile = (&user).try_into()?;
 
     send_user_photos(bot, db, id, id).await?;
 
-    let user_str = format_user(&user)?;
-    let msg = format!("Так выглядит ваша анкета:\n\n{}", user_str);
+    let msg = format!("Так выглядит ваша анкета:\n\n{profile}");
 
     bot.send_message(ChatId(id), msg)
         .reply_markup(KeyboardRemove::new())
@@ -154,8 +120,10 @@ pub async fn send_recommendation(
             ]];
             let keyboard_markup = InlineKeyboardMarkup::new(keyboard);
 
+            let partner_profile: PublicProfile = (&partner).try_into()?;
+
             let sent_msg = bot
-                .send_message(chat, format_user(&partner)?)
+                .send_message(chat, partner_profile.to_string())
                 .reply_markup(keyboard_markup)
                 .await?;
 
@@ -202,16 +170,16 @@ pub async fn send_like(
         .await?
         .context("dating initiator not found")?;
 
-    let user_info = format_user(&user)?;
+    let user_profile: PublicProfile = (&user).try_into()?;
 
     let like_msg = match msg {
         Some(m) => {
             format!(
                 "Кому то понравилась ваша анкета и он оставил вам \
-                 сообщение:\n{m}\n\n{user_info}"
+                 сообщение:\n{m}\n\n{user_profile}"
             )
         }
-        None => format!("Кому то понравилась ваша анкета:\n\n{user_info}"),
+        None => format!("Кому то понравилась ваша анкета:\n\n{user_profile}"),
     };
 
     match send_user_photos(bot, db, dating.initiator_id, dating.partner_id)
@@ -279,6 +247,8 @@ pub async fn mutual_like(
         .await?
         .context("dating partner not found")?;
 
+    let partner_profile: PublicProfile = (&partner).try_into()?;
+
     db.set_dating_partner_reaction(dating.id, true).await?;
 
     if let Err(e) =
@@ -299,7 +269,7 @@ pub async fn mutual_like(
     let initiator_keyboard_markup =
         InlineKeyboardMarkup::new(initiator_keyboard);
     let initiator_msg =
-        format!("Взаимный лайк!\n\n{}", format_user(&partner)?,);
+        format!("Взаимный лайк!\n\n{partner_profile}");
     if let Err(e) = bot
         .send_message(ChatId(dating.initiator_id), initiator_msg)
         .reply_markup(initiator_keyboard_markup)

@@ -1,6 +1,5 @@
 use std::{str::FromStr, sync::Arc};
 
-use bitflags::bitflags;
 use db::Database;
 use entities::sea_orm_active_enums::{Gender, LocationFilter};
 use sentry_tracing::EventFilter;
@@ -22,6 +21,7 @@ mod db;
 mod handle;
 mod request;
 mod text;
+mod types;
 mod utils;
 
 type Bot = Throttle<teloxide::Bot>;
@@ -170,45 +170,6 @@ async fn main() -> anyhow::Result<()> {
         .dispatch()
         .await;
     Ok(())
-}
-
-bitflags! {
-    #[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Hash)]
-    pub struct Subjects: i32 {
-        const Art = 1 << 0;
-        const Astronomy = 1 << 1;
-        const Biology = 1 << 2;
-        const Chemistry = 1 << 3;
-        const Chinese = 1 << 4;
-        const Ecology = 1 << 5;
-        const Economics = 1 << 6;
-        const English = 1 << 7;
-        const French = 1 << 8;
-        const Geography = 1 << 9;
-        const German = 1 << 10;
-        const History = 1 << 11;
-        const Informatics = 1 << 12;
-        const Italian = 1 << 13;
-        const Law = 1 << 14;
-        const Literature = 1 << 15;
-        const Math = 1 << 16;
-        const Physics = 1 << 17;
-        const Russian = 1 << 18;
-        const Safety = 1 << 19;
-        const Social = 1 << 20;
-        const Spanish = 1 << 21;
-        const Sport = 1 << 22;
-        const Technology = 1 << 23;
-    }
-}
-
-bitflags! {
-    #[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Hash)]
-    pub struct DatingPurpose: i16 {
-        const Friendship = 1 << 0;
-        const Studies = 1 << 1;
-        const Relationship = 1 << 2;
-    }
 }
 
 macro_rules! make_profile {
