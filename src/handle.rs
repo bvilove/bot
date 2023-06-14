@@ -16,7 +16,7 @@ use tracing::instrument;
 use crate::{
     cities::{self, City},
     db, text,
-    types::{DatingPurpose, Subjects, GraduationYear, Grade},
+    types::{DatingPurpose, Grade, GraduationYear, Subjects},
     utils, Bot, EditProfile, MyDialogue, State,
 };
 

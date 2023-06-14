@@ -1,10 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{bail, Context};
-use entities::{
-    datings,
-    sea_orm_active_enums::{ImageKind},
-};
+use entities::{datings, sea_orm_active_enums::ImageKind};
 use teloxide::{
     prelude::*,
     types::{
@@ -16,7 +13,9 @@ use teloxide::{
 };
 use tracing::*;
 
-use crate::{db::Database, text, Bot, types::{PublicProfile}, EditProfile, MyDialogue};
+use crate::{
+    db::Database, text, types::PublicProfile, Bot, EditProfile, MyDialogue,
+};
 
 pub async fn send_profile(
     bot: &Bot,
@@ -25,7 +24,7 @@ pub async fn send_profile(
 ) -> anyhow::Result<()> {
     let user =
         db.get_user(id).await?.context("user to send profile not found")?;
-    
+
     let profile: PublicProfile = (&user).try_into()?;
 
     send_user_photos(bot, db, id, id).await?;
@@ -268,8 +267,7 @@ pub async fn mutual_like(
     )]];
     let initiator_keyboard_markup =
         InlineKeyboardMarkup::new(initiator_keyboard);
-    let initiator_msg =
-        format!("Взаимный лайк!\n\n{partner_profile}");
+    let initiator_msg = format!("Взаимный лайк!\n\n{partner_profile}");
     if let Err(e) = bot
         .send_message(ChatId(dating.initiator_id), initiator_msg)
         .reply_markup(initiator_keyboard_markup)
