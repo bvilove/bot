@@ -338,9 +338,9 @@ impl Database {
                     .eq((user.city.context("user city must be set")? >> 8)
                         % 2i32.pow(8)),
             ),
-            LocationFilter::SameCity => partner_query, /* SameCity will be
-                                                        * matchned by partner
-                                                        * location filter */
+            LocationFilter::SameCity => {
+                partner_query.filter(users::Column::City.eq(user.city))
+            }
         };
 
         let txn = self.conn.begin().await?;
