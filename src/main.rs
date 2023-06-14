@@ -2,6 +2,7 @@ use std::{str::FromStr, sync::Arc};
 
 use db::Database;
 use entities::sea_orm_active_enums::{Gender, LocationFilter};
+use sea_orm::ActiveValue;
 use sentry_tracing::EventFilter;
 use teloxide::{
     adaptors::{throttle::Limits, Throttle},
@@ -14,6 +15,7 @@ use teloxide::{
 };
 use tracing::*;
 use tracing_subscriber::prelude::*;
+use types::UserSettings;
 
 mod cities;
 mod datings;
@@ -173,79 +175,93 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-macro_rules! make_profile {
-    ($($element:ident: $ty:ty),* $(,)?) => {
-        #[derive(Clone, Default, Debug)]
-        pub struct EditProfile {
-            id: i64,
-            create_new: bool,
-            photos_count: u8,
-            $($element: Option<$ty>),*
-        }
-        impl EditProfile {
-            pub fn new(id: i64) -> Self {
-                Self {
-                    id,
-                    create_new: true,
-                    photos_count: 0,
-                    ..Default::default()
-                }
-            }
+// macro_rules! make_profile {
+//     ($($element:ident: $ty:ty),* $(,)?) => {
+//         #[derive(Clone, Default, Debug)]
+//         pub struct EditProfile {
+//             id: i64,
+//             create_new: bool,
+//             photos_count: u8,
+//             $($element: Option<$ty>),*
+//         }
+//         impl EditProfile {
+//             pub fn new(id: i64) -> Self {
+//                 Self {
+//                     id,
+//                     create_new: true,
+//                     photos_count: 0,
+//                     ..Default::default()
+//                 }
+//             }
 
-            pub fn from_model(m: entities::users::Model) -> Self {
-                Self {
-                    id: m.id,
-                    create_new: false,
-                    photos_count: 0,
-                    $($element: Some(m.$element)),*
-                }
-            }
+//             pub fn from_model(m: entities::users::Model) -> Self {
+//                 Self {
+//                     id: m.id,
+//                     create_new: false,
+//                     photos_count: 0,
+//                     $($element: Some(m.$element)),*
+//                 }
+//             }
 
-            pub fn as_active_model(self) -> entities::users::ActiveModel {
-                use sea_orm::ActiveValue;
-                entities::users::ActiveModel {
-                    id: ActiveValue::Unchanged(self.id),
-                    last_activity: ActiveValue::NotSet,
-                    $($element: self.$element
-                        .map_or(ActiveValue::NotSet, |p| ActiveValue::Set(p))),*
-                }
-            }
-        }
-    };
+//             pub fn as_active_model(self) -> entities::users::ActiveModel {
+//                 use sea_orm::ActiveValue;
+//                 entities::users::ActiveModel {
+//                     id: ActiveValue::Unchanged(self.id),
+//                     last_activity: ActiveValue::NotSet,
+//                     $($element: self.$element
+//                         .map_or(ActiveValue::NotSet, |p|
+// ActiveValue::Set(p))),*                 }
+//             }
+//         }
+//     };
+// }
+
+// make_profile!(
+//     name: String,
+//     gender: Gender,
+//     gender_filter: Option<Gender>,
+//     about: String,
+//     active: bool,
+//     graduation_year: i16,
+//     grade_up_filter: i16,
+//     grade_down_filter: i16,
+//     subjects: i32,
+//     subjects_filter: i32,
+//     dating_purpose: i16,
+//     city: Option<i32>,
+//     location_filter: LocationFilter,
+// );
+
+#[derive(Clone, Default, Debug)]
+pub struct StateData {
+    pub s: UserSettings,
+    create_new: bool,
+    photos_count: u8,
 }
 
-make_profile!(
-    name: String,
-    gender: Gender,
-    gender_filter: Option<Gender>,
-    about: String,
-    active: bool,
-    graduation_year: i16,
-    grade_up_filter: i16,
-    grade_down_filter: i16,
-    subjects: i32,
-    subjects_filter: i32,
-    dating_purpose: i16,
-    city: Option<i32>,
-    location_filter: LocationFilter,
-);
+impl StateData {
+    pub fn new(id: i64) -> Self {
+        let settings = UserSettings::new(id);
+        Self { s: settings, ..Default::default() }
+    }
+}
 
 #[derive(Clone, Default, Debug)]
 pub enum State {
     #[default]
     Start,
     // edit profile
-    SetName(EditProfile),
-    SetGender(EditProfile),
-    SetGenderFilter(EditProfile),
-    SetGraduationYear(EditProfile),
-    SetSubjects(EditProfile),
-    SetSubjectsFilter(EditProfile),
-    SetDatingPurpose(EditProfile),
-    SetCity(EditProfile),
-    SetLocationFilter(EditProfile),
-    SetAbout(EditProfile),
-    SetPhotos(EditProfile),
+    SetName(StateData),
+    SetGender(StateData),
+    SetGenderFilter(StateData),
+    SetGraduationYear(StateData),
+    SetSubjects(StateData),
+    SetSubjectsFilter(StateData),
+    SetDatingPurpose(StateData),
+    SetCity(StateData),
+    SetLocationFilter(StateData),
+    SetAbout(StateData),
+    SetPhotos(StateData),
     // others
     LikeMessage {
         dating: entities::datings::Model,
@@ -305,7 +321,7 @@ pub async fn start_profile_creation(
             .await?;
     } else {
         bot.send_message(msg.chat.id, text::PROFILE_CREATION_STARTED).await?;
-        let profile = EditProfile::new(msg.chat.id.0);
+        let profile = StateData::new(msg.chat.id.0);
         let state = State::SetName(profile.clone());
         handle::print_current_state(&state, None, bot, &msg.chat).await?;
         dialogue.update(state).await?;
@@ -375,9 +391,10 @@ async fn answer(
                     return Ok(());
                 }
 
-                db.create_or_update_user(EditProfile {
-                    active: Some(true),
-                    ..EditProfile::new(msg.chat.id.0)
+                db.create_or_update_user(entities::users::ActiveModel {
+                    id: ActiveValue::Set(msg.chat.id.0),
+                    active: ActiveValue::Set(true),
+                    ..Default::default()
                 })
                 .await?;
                 bot.send_message(msg.chat.id, text::PROFILE_ENABLED).await?;
@@ -389,9 +406,10 @@ async fn answer(
                     return Ok(());
                 }
 
-                db.create_or_update_user(EditProfile {
-                    active: Some(false),
-                    ..EditProfile::new(msg.chat.id.0)
+                db.create_or_update_user(entities::users::ActiveModel {
+                    id: ActiveValue::Set(msg.chat.id.0),
+                    active: ActiveValue::Set(false),
+                    ..Default::default()
                 })
                 .await?;
                 bot.send_message(msg.chat.id, text::PROFILE_DISABLED).await?;

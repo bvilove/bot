@@ -13,9 +13,7 @@ use teloxide::{
 };
 use tracing::*;
 
-use crate::{
-    db::Database, text, types::PublicProfile, Bot, EditProfile, MyDialogue,
-};
+use crate::{db::Database, text, types::PublicProfile, Bot, MyDialogue};
 
 pub async fn send_profile(
     bot: &Bot,
@@ -25,7 +23,7 @@ pub async fn send_profile(
     let user =
         db.get_user(id).await?.context("user to send profile not found")?;
 
-    let profile: PublicProfile = (&user).try_into()?;
+    let profile: PublicProfile = user.try_into()?;
 
     send_user_photos(bot, db, id, id).await?;
 
@@ -119,7 +117,7 @@ pub async fn send_recommendation(
             ]];
             let keyboard_markup = InlineKeyboardMarkup::new(keyboard);
 
-            let partner_profile: PublicProfile = (&partner).try_into()?;
+            let partner_profile: PublicProfile = partner.try_into()?;
 
             let sent_msg = bot
                 .send_message(chat, partner_profile.to_string())
@@ -169,7 +167,7 @@ pub async fn send_like(
         .await?
         .context("dating initiator not found")?;
 
-    let user_profile: PublicProfile = (&user).try_into()?;
+    let user_profile: PublicProfile = user.try_into()?;
 
     let like_msg = match msg {
         Some(m) => {
@@ -246,7 +244,7 @@ pub async fn mutual_like(
         .await?
         .context("dating partner not found")?;
 
-    let partner_profile: PublicProfile = (&partner).try_into()?;
+    let partner_profile: PublicProfile = partner.clone().try_into()?;
 
     db.set_dating_partner_reaction(dating.id, true).await?;
 

@@ -6,8 +6,8 @@ use strsim::jaro_winkler;
 
 include!(concat!(env!("OUT_DIR"), "/citiesmap.rs"));
 
-#[derive(Copy, Clone)]
-pub struct City(Option<i32>);
+#[derive(Copy, Clone, Debug)]
+pub struct City(pub Option<i32>);
 
 impl Display for City {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

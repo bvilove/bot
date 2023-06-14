@@ -11,18 +11,17 @@ use teloxide::{
 use crate::{
     cities, text,
     types::{DatingPurpose, Subjects},
-    utils, Bot, EditProfile,
+    utils, Bot, StateData,
 };
 
 pub async fn request_set_location_filter(
     bot: &Bot,
     chat: &Chat,
-    p: &EditProfile,
+    s: &StateData,
 ) -> anyhow::Result<()> {
-    let id = p
-        .city
-        .context("city must be set at this moment")?
-        .context("city must be set at this moment")?;
+    let city = s.s.city.context("city must be set at this moment")?;
+
+    let id = city.0.context("city must be set")?;
 
     let subject =
         cities::subject_by_id(id).context("subject not found")?.to_owned();
@@ -129,13 +128,12 @@ pub async fn request_set_grade(bot: &Bot, chat: &Chat) -> anyhow::Result<()> {
 pub async fn request_set_subjects(
     bot: &Bot,
     chat: &Chat,
-    p: &EditProfile,
+    s: &StateData,
 ) -> anyhow::Result<()> {
     bot.send_message(chat.id, text::EDIT_SUBJECTS)
         .reply_markup(utils::make_subjects_keyboard(
-            match p.subjects {
-                Some(s) => Subjects::from_bits(s)
-                    .context("subjects must be created")?,
+            match s.s.subjects {
+                Some(s) => s.0,
                 None => Subjects::default(),
             },
             utils::SubjectsKeyboardType::User,
@@ -147,12 +145,12 @@ pub async fn request_set_subjects(
 pub async fn request_set_dating_purpose(
     bot: &Bot,
     chat: &Chat,
-    p: &EditProfile,
+    s: &StateData,
 ) -> anyhow::Result<()> {
     bot.send_message(chat.id, text::REQUEST_SET_DATING_PURPOSE)
         .reply_markup(utils::make_dating_purpose_keyboard(
-            match p.dating_purpose {
-                Some(d) => DatingPurpose::try_from(d)?,
+            match s.s.dating_purpose {
+                Some(d) => d.into(),
                 None => DatingPurpose::default(),
             },
         ))
@@ -163,13 +161,12 @@ pub async fn request_set_dating_purpose(
 pub async fn request_set_subjects_filter(
     bot: &Bot,
     chat: &Chat,
-    p: &EditProfile,
+    s: &StateData,
 ) -> anyhow::Result<()> {
     bot.send_message(chat.id, text::EDIT_PARTNER_SUBJECTS)
         .reply_markup(utils::make_subjects_keyboard(
-            match p.subjects_filter {
-                Some(s) => Subjects::from_bits(s)
-                    .context("subjects filter must be created")?,
+            match s.s.subjects_filter {
+                Some(s) => s.0,
                 None => Subjects::default(),
             },
             utils::SubjectsKeyboardType::Partner,

@@ -51,4 +51,5 @@ serde = "1.0.163"
 
 [profile.release]
 debug = 0
+# split-debuginfo = "packed"
 lto = "thin"

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context};
 use db::Database;
-use entities::sea_orm_active_enums::{Gender, ImageKind, LocationFilter};
+use entities::sea_orm_active_enums::ImageKind;
 use teloxide::{
     // net::Download,
     prelude::*,
@@ -16,8 +16,11 @@ use tracing::instrument;
 use crate::{
     cities::{self, City},
     db, text,
-    types::{DatingPurpose, Grade, GraduationYear, Subjects},
-    utils, Bot, EditProfile, MyDialogue, State,
+    types::{
+        DatingPurpose, Grade, GraduationYear, LocationFilter, Subjects,
+        UserGender, GenderFilter,
+    },
+    utils, Bot, MyDialogue, State, StateData,
 };
 
 #[instrument(level = "debug", skip(bot, db))]
@@ -25,51 +28,53 @@ pub async fn next_state(
     dialogue: &MyDialogue,
     chat: &Chat,
     state: &State,
-    p: EditProfile,
+    s: StateData,
     bot: &Bot,
     db: &Arc<Database>,
 ) -> anyhow::Result<()> {
     use State::*;
     let next_state = match state {
-        SetName(EditProfile { create_new: true, .. }) => SetGender(p.clone()),
-        SetGender(EditProfile { create_new: true, .. }) => {
-            SetGenderFilter(p.clone())
+        SetName(StateData { create_new: true, .. }) => SetGender(s.clone()),
+        SetGender(StateData { create_new: true, .. }) => {
+            SetGenderFilter(s.clone())
         }
-        SetGenderFilter(EditProfile { create_new: true, .. }) => {
-            SetGraduationYear(p.clone())
+        SetGenderFilter(StateData { create_new: true, .. }) => {
+            SetGraduationYear(s.clone())
         }
-        SetGraduationYear(EditProfile { create_new: true, .. }) => {
-            SetSubjects(p.clone())
+        SetGraduationYear(StateData { create_new: true, .. }) => {
+            SetSubjects(s.clone())
         }
-        SetSubjects(_) => SetSubjectsFilter(p.clone()),
-        SetSubjectsFilter(EditProfile { create_new: true, .. }) => {
-            SetDatingPurpose(p.clone())
+        SetSubjects(_) => SetSubjectsFilter(s.clone()),
+        SetSubjectsFilter(StateData { create_new: true, .. }) => {
+            SetDatingPurpose(s.clone())
         }
-        SetDatingPurpose(EditProfile { create_new: true, .. }) => {
-            SetCity(p.clone())
+        SetDatingPurpose(StateData { create_new: true, .. }) => {
+            SetCity(s.clone())
         }
         SetCity(_) => {
-            if p.city
+            if s.s
+                .city
                 .context("city must be set when city editing finished")?
+                .0
                 .is_some()
             {
-                SetLocationFilter(p.clone())
-            } else if p.create_new {
-                SetAbout(p.clone())
+                SetLocationFilter(s.clone())
+            } else if s.create_new {
+                SetAbout(s.clone())
             } else {
                 Start
             }
         }
-        SetLocationFilter(EditProfile { create_new: true, .. }) => {
-            SetAbout(p.clone())
+        SetLocationFilter(StateData { create_new: true, .. }) => {
+            SetAbout(s.clone())
         }
-        SetAbout(EditProfile { create_new: true, .. }) => {
+        SetAbout(StateData { create_new: true, .. }) => {
             // HACK: create user before setting photos
-            db.create_or_update_user(p.clone()).await?;
-            SetPhotos(p.clone())
+            db.create_or_update_user(s.s.try_into()?).await?;
+            SetPhotos(s.clone())
         }
         SetPhotos(_) => {
-            crate::datings::send_profile(bot, db, p.id).await?;
+            crate::datings::send_profile(bot, db, s.s.id).await?;
             Start
         }
         // invalid states
@@ -79,12 +84,12 @@ pub async fn next_state(
         }
         // *(EditProfile { create_new: true, .. })
         _ => {
-            db.create_or_update_user(p.clone()).await?;
-            crate::datings::send_profile(bot, db, p.id).await?;
+            db.create_or_update_user(s.s.try_into()?).await?;
+            crate::datings::send_profile(bot, db, s.s.id).await?;
             Start
         }
     };
-    print_current_state(&next_state, Some(&p), bot, chat).await?;
+    print_current_state(&next_state, Some(&s), bot, chat).await?;
     dialogue.update(next_state).await?;
 
     Ok(())
@@ -93,7 +98,7 @@ pub async fn next_state(
 #[instrument(level = "debug", skip(bot))]
 pub async fn print_current_state(
     state: &State,
-    p: Option<&EditProfile>,
+    p: Option<&StateData>,
     bot: &Bot,
     chat: &Chat,
 ) -> anyhow::Result<()> {
@@ -159,29 +164,27 @@ pub async fn handle_set_city(
     bot: Bot,
     dialogue: MyDialogue,
     msg: Message,
-    mut profile: EditProfile,
+    mut s: StateData,
     state: State,
 ) -> anyhow::Result<()> {
     let text = msg.text().context("no text in message")?;
 
     match text {
         "Верно" => {
-            if profile.city.is_none() {
+            if s.s.city.is_none() {
                 bail!("try to confirm not set city")
             }
-            next_state(&dialogue, &msg.chat, &state, profile, &bot, &db)
-                .await?;
+            next_state(&dialogue, &msg.chat, &state, s, &bot, &db).await?;
         }
         "Не указывать" => {
-            profile.city = Some(None);
-            profile.location_filter = Some(LocationFilter::SameCountry);
+            s.s.city = Some(City(None));
+            s.s.location_filter = Some(LocationFilter::Country);
 
             bot.send_message(msg.chat.id, text::NO_CITY)
                 .reply_markup(KeyboardRemove::new())
                 .await?;
 
-            next_state(&dialogue, &msg.chat, &state, profile, &bot, &db)
-                .await?;
+            next_state(&dialogue, &msg.chat, &state, s, &bot, &db).await?;
         }
         // "Список городов" => {
         //     let cities: String = crate::cities::cities_list();
@@ -190,8 +193,8 @@ pub async fn handle_set_city(
         // }
         _ => match text.parse::<City>() {
             Ok(city) => {
-                profile.city = Some(city.into());
-                dialogue.update(State::SetCity(profile)).await?;
+                s.s.city = Some(city);
+                dialogue.update(State::SetCity(s)).await?;
 
                 let keyboard = vec![vec![
                     KeyboardButton::new("Верно"),
@@ -223,35 +226,18 @@ pub async fn handle_set_location_filter(
     bot: Bot,
     dialogue: MyDialogue,
     msg: Message,
-    mut profile: EditProfile,
+    mut s: StateData,
     state: State,
 ) -> anyhow::Result<()> {
     let text = msg.text().context("no text in message")?;
 
-    let location_filter = if text == "Вся Россия" {
-        LocationFilter::SameCountry
-    } else if cities::county_exists(
-        &text
-            .chars()
-            .rev()
-            .skip(3)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect::<String>(),
-    ) {
-        LocationFilter::SameCounty
-    } else if cities::subject_exists(text) {
-        LocationFilter::SameSubject
-    } else if cities::city_exists(text) {
-        LocationFilter::SameCity
-    } else {
-        print_current_state(&state, Some(&profile), &bot, &msg.chat).await?;
+    let Ok(location_filter) = text.parse::<LocationFilter>() else {
+        print_current_state(&state, Some(&s), &bot, &msg.chat).await?;
         return Ok(());
     };
 
-    profile.location_filter = Some(location_filter);
-    next_state(&dialogue, &msg.chat, &state, profile, &bot, &db).await?;
+    s.s.location_filter = Some(location_filter);
+    next_state(&dialogue, &msg.chat, &state, s, &bot, &db).await?;
 
     Ok(())
 }
@@ -262,18 +248,16 @@ pub async fn handle_set_name(
     bot: Bot,
     dialogue: MyDialogue,
     msg: Message,
-    mut profile: EditProfile,
+    mut s: StateData,
     state: State,
 ) -> anyhow::Result<()> {
     match msg.text() {
         Some(text) if (3..=16).contains(&text.chars().count()) => {
-            profile.name = Some(text.to_owned());
-            next_state(&dialogue, &msg.chat, &state, profile, &bot, &db)
-                .await?;
+            s.s.name = Some(text.to_owned());
+            next_state(&dialogue, &msg.chat, &state, s, &bot, &db).await?;
         }
         _ => {
-            print_current_state(&state, Some(&profile), &bot, &msg.chat)
-                .await?;
+            print_current_state(&state, Some(&s), &bot, &msg.chat).await?;
         }
     }
     Ok(())
@@ -285,21 +269,16 @@ pub async fn handle_set_gender(
     bot: Bot,
     dialogue: MyDialogue,
     msg: Message,
-    mut profile: EditProfile,
+    mut s: StateData,
     state: State,
 ) -> anyhow::Result<()> {
-    let gender = match msg.text().context("no text in message")? {
-        text::GENDER_MALE => Gender::Male,
-        text::GENDER_FEMALE => Gender::Female,
-        _ => {
-            print_current_state(&state, Some(&profile), &bot, &msg.chat)
-                .await?;
-            return Ok(());
-        }
+    let Ok(gender) = msg.text().context("no text in message")?.parse::<UserGender>() else {
+        print_current_state(&state, Some(&s), &bot, &msg.chat).await?;
+        return Ok(());
     };
 
-    profile.gender = Some(gender);
-    next_state(&dialogue, &msg.chat, &state, profile, &bot, &db).await?;
+    s.s.gender = Some(gender);
+    next_state(&dialogue, &msg.chat, &state, s, &bot, &db).await?;
 
     Ok(())
 }
@@ -310,22 +289,16 @@ pub async fn handle_set_partner_gender(
     bot: Bot,
     dialogue: MyDialogue,
     msg: Message,
-    mut profile: EditProfile,
+    mut s: StateData,
     state: State,
 ) -> anyhow::Result<()> {
-    let gender = match msg.text().context("no text in message")? {
-        text::GENDER_FILTER_MALE => Some(Gender::Male),
-        text::GENDER_FILTER_FEMALE => Some(Gender::Female),
-        text::GENDER_FILTER_ANY => None,
-        _ => {
-            print_current_state(&state, Some(&profile), &bot, &msg.chat)
-                .await?;
-            return Ok(());
-        }
+    let Ok(gender_filter) = msg.text().context("no text in message")?.parse::<GenderFilter>() else {
+        print_current_state(&state, Some(&s), &bot, &msg.chat).await?;
+        return Ok(());
     };
 
-    profile.gender_filter = Some(gender);
-    next_state(&dialogue, &msg.chat, &state, profile, &bot, &db).await?;
+    s.s.gender_filter = Some(gender_filter);
+    next_state(&dialogue, &msg.chat, &state, s, &bot, &db).await?;
 
     Ok(())
 }
@@ -336,7 +309,7 @@ pub async fn handle_set_grade(
     bot: Bot,
     dialogue: MyDialogue,
     msg: Message,
-    mut profile: EditProfile,
+    mut s: StateData,
     state: State,
 ) -> anyhow::Result<()> {
     let Ok(grade) = msg
@@ -344,19 +317,17 @@ pub async fn handle_set_grade(
         .context("no text in message")?
         .parse::<i8>()
     else {
-        print_current_state(&state, Some(&profile), &bot, &msg.chat).await?;
+        print_current_state(&state, Some(&s), &bot, &msg.chat).await?;
         return Ok(())
     };
 
     let Ok(grade) = Grade::try_from(grade) else {
-        print_current_state(&state, Some(&profile), &bot, &msg.chat).await?;
+        print_current_state(&state, Some(&s), &bot, &msg.chat).await?;
         return Ok(());
     };
 
-    let graduation_year: GraduationYear = grade.into();
-
-    profile.graduation_year = Some(graduation_year.into());
-    next_state(&dialogue, &msg.chat, &state, profile, &bot, &db).await?;
+    s.s.grade = Some(grade);
+    next_state(&dialogue, &msg.chat, &state, s, &bot, &db).await?;
 
     // bot.send_message(
     //     msg.chat.id,
@@ -378,17 +349,17 @@ pub async fn handle_set_about(
     bot: Bot,
     dialogue: MyDialogue,
     msg: Message,
-    mut profile: EditProfile,
+    mut s: StateData,
     state: State,
 ) -> anyhow::Result<()> {
     match msg.text() {
         Some(text) if (1..=1024).contains(&text.chars().count()) => {
-            profile.about = Some(text.to_owned());
-            next_state(&dialogue, &msg.chat, &state, profile, &bot, &db)
+            s.s.about = Some(text.to_owned());
+            next_state(&dialogue, &msg.chat, &state, s, &bot, &db)
                 .await?;
         }
         _ => {
-            print_current_state(&state, Some(&profile), &bot, &msg.chat)
+            print_current_state(&state, Some(&s), &bot, &msg.chat)
                 .await?;
         }
     }
@@ -401,7 +372,7 @@ pub async fn handle_set_photos(
     bot: Bot,
     dialogue: MyDialogue,
     msg: Message,
-    mut profile: EditProfile,
+    mut s: StateData,
     state: State,
 ) -> anyhow::Result<()> {
     let keyboard = vec![vec![KeyboardButton::new("Сохранить")]];
@@ -410,19 +381,19 @@ pub async fn handle_set_photos(
     match msg.text() {
         Some(text) if text == "Без фото" => {
             db.clean_images(msg.chat.id.0).await?;
-            next_state(&dialogue, &msg.chat, &state, profile, &bot, &db)
+            next_state(&dialogue, &msg.chat, &state, s, &bot, &db)
                 .await?;
             return Ok(());
         }
         Some(text) if text == "Сохранить" => {
-            next_state(&dialogue, &msg.chat, &state, profile, &bot, &db)
+            next_state(&dialogue, &msg.chat, &state, s, &bot, &db)
                 .await?;
             return Ok(());
         }
         _ => {
-            if profile.photos_count == 0 {
+            if s.photos_count == 0 {
                 db.clean_images(msg.chat.id.0).await?;
-            } else if profile.photos_count >= 10 {
+            } else if s.photos_count >= 10 {
                 bot.send_message(
                     msg.chat.id,
                     "Невозможно добавить более 10 фото/видео",
@@ -452,25 +423,26 @@ pub async fn handle_set_photos(
                 )
                 .await?;
             } else {
-                print_current_state(&state, Some(&profile), &bot, &msg.chat)
+                print_current_state(&state, Some(&s), &bot, &msg.chat)
                     .await?;
+                return Ok(())
             };
         }
     };
 
-    profile.photos_count += 1;
+    s.photos_count += 1;
 
     bot.send_message(
         msg.chat.id,
         format!(
             "Добавлено {}/10 фото/видео. Добавить ещё?",
-            profile.photos_count
+            s.photos_count
         ),
     )
     .reply_markup(keyboard_markup)
     .await?;
 
-    dialogue.update(State::SetPhotos(profile)).await?;
+    dialogue.update(State::SetPhotos(s)).await?;
 
     Ok(())
 }
@@ -489,12 +461,13 @@ pub async fn handle_callback(
     let first_char = data.chars().next().context("first char not found")?;
     let last_chars = data.chars().skip(1).collect::<String>();
 
-    fn get_profile(state: &State) -> anyhow::Result<EditProfile> {
+    // TODO: refactor
+    fn get_profile(state: &State) -> anyhow::Result<StateData> {
         match state {
             State::SetSubjects(e) => Ok(e.clone()),
             State::SetSubjectsFilter(e) => Ok(e.clone()),
             State::SetDatingPurpose(e) => Ok(e.clone()),
-            _ => bail!("failed to get profile from state"),
+            _ => bail!("failed to get state data from state"),
         }
     }
 
