@@ -172,7 +172,6 @@ async fn try_handle_message(
             let e = $e;
             print_state(&e, bot, chat).await?;
             *state = e;
-            return Ok(());
         };
     }
 
@@ -240,11 +239,8 @@ async fn try_handle_message(
             let t = t.ok_or(HandleError::NeedText)?;
 
             match t {
-                "Верно" => {
-                    if p.city.is_none() {
-                        bail!("try to confirm not set city")
-                    }
-                    *state = SetLocationFilter(mem::take(p));
+                "Верно" if p.city.is_some() => {
+                    upd_print!(SetLocationFilter(mem::take(p)));
                 }
                 "Не указывать" => {
                     p.city = Some(None);
@@ -257,8 +253,8 @@ async fn try_handle_message(
                         Start
                     });
                 }
-                t => {
-                    if let Ok(city) = t.parse::<City>() {
+                city => {
+                    if let Ok(city) = city.parse::<City>() {
                         p.city = Some(city.into());
                         send!(
                             format!("Ваш город - {city}?"),
@@ -330,11 +326,42 @@ async fn try_handle_message(
                 Start
             });
         }
-        SetPhotos(p) => {
-            // TODO:
-            crate::datings::send_profile(bot, db, p.id).await?;
-            *state = Start;
-        }
+        SetPhotos(p) => match t {
+            Some("Без фото") => {
+                db.clean_images(chat.id.0).await?;
+                crate::datings::send_profile(bot, db, p.id).await?;
+                upd_print!(Start);
+            }
+            Some("Сохранить") => {
+                crate::datings::send_profile(bot, db, p.id).await?;
+                upd_print!(Start);
+            }
+            _ => {
+                // TODO: change type of photos_count to Option<u8>
+                if p.photos_count == 0 {
+                    db.clean_images(msg.chat.id.0).await?;
+                } else if p.photos_count >= 10 {
+                    send!(
+                        "Невозможно добавить более 10 фото/видео",
+                        markup[[KeyboardButton::new("Сохранить")]]
+                    );
+                    return Ok(());
+                };
+
+                if let Some([.., photo]) = msg.photo() {
+                    let file = bot.get_file(&photo.file.id).await?;
+                    db.create_image(chat.id.0, file.meta.id, ImageKind::Image)
+                        .await?;
+                } else if let Some(video) = msg.video() {
+                    let file = bot.get_file(&video.file.id).await?;
+                    db.create_image(chat.id.0, file.meta.id, ImageKind::Video)
+                        .await?;
+                } else {
+                    bail!(HandleError::WrongText);
+                };
+            }
+        },
+        // TODO: confirm profile change State
         Start => {
             bot.send_message(
                 chat.id,
