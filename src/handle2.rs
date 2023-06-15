@@ -9,12 +9,14 @@ use teloxide::{
     types::{
         Chat, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton,
         KeyboardMarkup, KeyboardRemove,
-    }, utils::command::BotCommands,
+    },
+    utils::command::BotCommands,
 };
 use tracing::instrument;
 
 use crate::{
-    cities, db,
+    cities::{self, City},
+    db,
     handle::next_state,
     request, text,
     types::{Grade, GraduationYear},
@@ -45,79 +47,55 @@ enum HandleError {
 //     }
 // }
 
-macro_rules! send {
-    ($id:ident, $e:expr) => {
-        bot.send_message($id, $e).await?;
-    };
-    ($id:ident, $e:expr, remove) => {
-        bot.send_message($id, $e)
-            .reply_markup(KeyboardRemove::new())
-            .await?;
-    };
-    ($id:ident, $e:expr, markup $k:expr) => {
-        bot.send_message($id, $e)
-            .reply_markup(KeyboardMarkup::new($k).resize_keyboard(true))
-            .await?;
-    };
-    ($id:ident, $e:expr, inline $k:expr) => {
-        bot.send_message($id, $e)
-            .reply_markup(InlineKeyboardMarkup::new($k))
-            .await?;
-    };
+async fn handle_error(
+    e: anyhow::Error,
+    bot: &Bot,
+    state: &State,
+    chat: &Chat,
+) -> anyhow::Result<()> {
+    use HandleError::*;
+    match e.downcast_ref::<HandleError>() {
+        Some(e) => match e {
+            NeedText | WrongText | Length | Retry => {
+                print_state(state, bot, chat).await?;
+            }
+            Ignore => {}
+        },
+        None => return Err(e),
+    }
+    Ok(())
 }
 
+#[instrument(level = "debug", skip(db, bot))]
 async fn handle_message(
     db: Database,
     bot: Bot,
     dialogue: MyDialogue,
-    state: State,
+    mut state: State,
     msg: Message,
 ) -> anyhow::Result<()> {
-    handle(&db, &bot, &dialogue, state, &msg.chat, msg.text()).await
+    if let Err(e) = try_handle_message(&db, &bot, &mut state, &msg).await {
+        handle_error(e, &bot, &state, &msg.chat).await?;
+    }
+    dialogue.update(state).await?;
+    Ok(())
 }
 
+#[instrument(level = "debug", skip(db, bot))]
 async fn handle_callback(
     db: Database,
     bot: Bot,
     dialogue: MyDialogue,
-    state: State,
+    mut state: State,
     q: CallbackQuery,
 ) -> anyhow::Result<()> {
-    handle(
-        &db,
-        &bot,
-        &dialogue,
-        state,
-        &q.message.as_ref().context("message is None")?.chat,
-        q.data.as_deref(),
-    )
-    .await
-}
-
-#[instrument(level = "debug", skip(db, bot))]
-async fn handle(
-    db: &Database,
-    bot: &Bot,
-    dialogue: &MyDialogue,
-    mut state: State,
-    chat: &Chat,
-    text: Option<&str>,
-) -> anyhow::Result<()> {
-    // TODO: ensure!(chat.is_private(), "chat isn't private");
-    if let Err(e) = try_handle(db, bot, &mut state, chat, text).await
+    let chat = q.message.context("callback message is None")?.chat;
+    let data = q.data.context("callback data is None")?;
+    if let Err(e) =
+        try_handle_callback(&db, &bot, &mut state, &chat, &data).await
     {
-        use HandleError::*;
-        match e.downcast_ref::<HandleError>() {
-            Some(e) => match e {
-                NeedText | WrongText | Length | Retry => {
-                    print_state(&state, bot, chat).await?;
-                }
-                Ignore => {}
-            },
-            None => return Err(e),
-        }
+        handle_error(e, &bot, &state, &chat).await?;
     }
-    // TODO: always updates the dialogue, is is bad?
     dialogue.update(state).await?;
     Ok(())
 }
@@ -159,22 +137,42 @@ async fn print_state(
     Ok(())
 }
 
-async fn try_handle(
+async fn try_handle_message(
     db: &Database,
     bot: &Bot,
     state: &mut State,
-    chat: &Chat,
-    t: Option<&str>,
+    msg: &Message,
 ) -> anyhow::Result<()> {
-    // let id = chat.id;
+    let chat = &msg.chat;
+    let t = msg.text();
 
-    // Why macros? Because async closures are unstable,
-    // the only difference is "!"
+    macro_rules! send {
+        ($e:expr) => {
+            bot.send_message(chat.id, $e).await?;
+        };
+        ($e:expr, remove) => {
+            bot.send_message(chat.id, $e)
+                .reply_markup(KeyboardRemove::new())
+                .await?;
+        };
+        ($e:expr, markup $k:expr) => {
+            bot.send_message(chat.id, $e)
+                .reply_markup(KeyboardMarkup::new($k).resize_keyboard(true))
+                .await?;
+        };
+        ($e:expr, inline $k:expr) => {
+            bot.send_message(chat.id, $e)
+                .reply_markup(InlineKeyboardMarkup::new($k))
+                .await?;
+        };
+    }
+
     macro_rules! upd_print {
         ($e:expr) => {
             let e = $e;
             print_state(&e, bot, chat).await?;
             *state = e;
+            return Ok(());
         };
     }
 
@@ -238,74 +236,77 @@ async fn try_handle(
                 Start
             });
         }
-        // TODO: callback SetSubjects(p) => {
-        //     // upd_print!(if p.create_new {
-        //     //     SetSubjectsFilter(mem::take(p))
-        //     // } else {
-        //     //     Start
-        //     // });
-        //     upd_print!(SetSubjectsFilter(mem::take(p)));
-        // }
-        // TODO: callback SetSubjectsFilter(p) => {
-        //     upd_print!(if p.create_new {
-        //         SetDatingPurpose(mem::take(p))
-        //     } else {
-        //         Start
-        //     });
-        // }
-        // TODO: callback SetDatingPurpose(p) => {
-        //     upd_print!(if p.create_new {
-        //         SetCity(mem::take(p))
-        //     } else {
-        //         Start
-        //     });
-        // }
         SetCity(p) => {
-            upd_print!(if p
-                .city
-                .context("city must be set when city editing finished")?
-                .is_some()
-            {
-                SetLocationFilter(mem::take(p))
-            } else if p.create_new {
-                SetAbout(mem::take(p))
-            } else {
-                Start
-            });
+            let t = t.ok_or(HandleError::NeedText)?;
+
+            match t {
+                "Верно" => {
+                    if p.city.is_none() {
+                        bail!("try to confirm not set city")
+                    }
+                    *state = SetLocationFilter(mem::take(p));
+                }
+                "Не указывать" => {
+                    p.city = Some(None);
+                    p.location_filter = Some(LocationFilter::SameCountry);
+
+                    send!(text::NO_CITY, remove);
+                    upd_print!(if p.create_new {
+                        SetAbout(mem::take(p))
+                    } else {
+                        Start
+                    });
+                }
+                t => {
+                    if let Ok(city) = t.parse::<City>() {
+                        p.city = Some(city.into());
+                        send!(
+                            format!("Ваш город - {city}?"),
+                            markup[[
+                                KeyboardButton::new("Верно"),
+                                KeyboardButton::new("Не указывать"),
+                            ]]
+                        );
+                    } else {
+                        send!(
+                            text::CANT_FIND_CITY,
+                            markup[[KeyboardButton::new("Не указывать")]]
+                        );
+                    }
+                }
+            }
         }
         SetLocationFilter(p) => {
             let t = t.ok_or(HandleError::NeedText)?;
-            // FIXME: fix request_location_filter
-            let filter = match t.chars().next() {
-                Some('1') => LocationFilter::SameCountry,
-                Some('2') => LocationFilter::SameCounty,
-                Some('3') => LocationFilter::SameSubject,
-                Some('4') => LocationFilter::SameCity,
-                _ => bail!(HandleError::WrongText),
-            };
-            
-            // if text == "Вся Россия" {
-            //     LocationFilter::SameCountry
-            // } else if cities::county_exists(
-            //     &text
-            //         .chars()
-            //         .rev()
-            //         .skip(3)
-            //         .collect::<Vec<_>>()
-            //         .into_iter()
-            //         .rev()
-            //         .collect::<String>(),
-            // ) {
-            //     LocationFilter::SameCounty
-            // } else if cities::subject_exists(text) {
-            //     LocationFilter::SameSubject
-            // } else if cities::city_exists(text) {
-            //     LocationFilter::SameCity
-            // } else {
-            //     print_current_state(&state, Some(&profile), &bot, &msg.chat).await?;
-            //     return Ok(());
+            // let filter = match t.chars().next() {
+            //     Some('1') => LocationFilter::SameCountry,
+            //     Some('2') => LocationFilter::SameCounty,
+            //     Some('3') => LocationFilter::SameSubject,
+            //     Some('4') => LocationFilter::SameCity,
+            //     _ => bail!(HandleError::WrongText),
             // };
-        
+
+            // TODO: fix this mostrosity
+            let filter = if t == "Вся Россия" {
+                LocationFilter::SameCountry
+            } else if cities::county_exists(
+                &t.chars()
+                    .rev()
+                    .skip(3)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect::<String>(),
+            ) {
+                LocationFilter::SameCounty
+            } else if cities::subject_exists(t) {
+                LocationFilter::SameSubject
+            } else if cities::city_exists(t) {
+                LocationFilter::SameCity
+            } else {
+                bail!(HandleError::WrongText);
+            };
+
             p.location_filter = Some(filter);
             upd_print!(if p.create_new {
                 SetAbout(mem::take(p))
@@ -316,7 +317,6 @@ async fn try_handle(
         SetAbout(p) => {
             let t = t.ok_or(HandleError::NeedText)?;
             // TODO: skip button?
-            // FIXME: 1024 top limit?
             ensure!(
                 (1..=1024).contains(&t.chars().count()),
                 HandleError::Length
@@ -330,17 +330,80 @@ async fn try_handle(
                 Start
             });
         }
-        // TODO: message SetPhotos(p) => {
-        //     crate::datings::send_profile(bot, db, p.id).await?;
-        //     *state = Start;
-        // }
-        // TODO: callback LikeMessage { dating } => {}
-        // TODO: callback Edit => {}
-        Start => {
-            // FIXME: fix callback case
-            bot.send_message(chat.id, crate::Command::descriptions().to_string()).await?;
+        SetPhotos(p) => {
+            // TODO:
+            crate::datings::send_profile(bot, db, p.id).await?;
+            *state = Start;
         }
-        s => bail!("unimplemented: {s:?}"),
+        Start => {
+            bot.send_message(
+                chat.id,
+                crate::Command::descriptions().to_string(),
+            )
+            .await?;
+        }
+
+        // explicit ignore (for now)
+        SetSubjects(_)
+        | SetSubjectsFilter(_)
+        | SetDatingPurpose(_)
+        | LikeMessage { .. }
+        | Edit => {}
     }
+    Ok(())
+}
+
+async fn try_handle_callback(
+    db: &Database,
+    bot: &Bot,
+    state: &mut State,
+    chat: &Chat,
+    data: &str,
+) -> anyhow::Result<()> {
+    // Why macro? Because async closures are unstable,
+    // the only difference is "!"
+    macro_rules! upd_print {
+        ($e:expr) => {
+            let e = $e;
+            print_state(&e, bot, chat).await?;
+            *state = e;
+        };
+    }
+
+    // TODO: everything
+
+    use State::*;
+    match state {
+        SetSubjects(p) => {
+            // upd_print!(if p.create_new {
+            //     SetSubjectsFilter(mem::take(p))
+            // } else {
+            //     Start
+            // });
+            upd_print!(SetSubjectsFilter(mem::take(p)));
+        }
+        SetSubjectsFilter(p) => {
+            upd_print!(if p.create_new {
+                SetDatingPurpose(mem::take(p))
+            } else {
+                Start
+            });
+        }
+        SetDatingPurpose(p) => {
+            upd_print!(if p.create_new {
+                SetCity(mem::take(p))
+            } else {
+                Start
+            });
+        }
+        LikeMessage { dating } => {}
+        Edit => {}
+
+        // explicit ignore
+        Start | SetName(_) | SetGender(_) | SetGenderFilter(_)
+        | SetGraduationYear(_) | SetCity(_) | SetLocationFilter(_)
+        | SetAbout(_) | SetPhotos(_) => {}
+    }
+
     Ok(())
 }
