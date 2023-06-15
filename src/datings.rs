@@ -19,7 +19,7 @@ use crate::{
 
 pub async fn send_profile(
     bot: &Bot,
-    db: &Arc<Database>,
+    db: &Database,
     id: i64,
 ) -> anyhow::Result<()> {
     let user =
@@ -284,7 +284,7 @@ pub async fn mutual_like(
 
 async fn send_user_photos(
     bot: &Bot,
-    db: &Arc<Database>,
+    db: &Database,
     user: i64,
     chat: i64,
 ) -> std::result::Result<(), crate::AppError> {
