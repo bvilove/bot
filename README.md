@@ -5,7 +5,6 @@
 - add edit commands
 - show profile command
 - print "Something went wrong" message on error
-- exit if in public chat
 
 # Лицензирование
 

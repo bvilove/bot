@@ -109,6 +109,12 @@ async fn main() -> anyhow::Result<()> {
     let handler = dptree::entry()
         .enter_dialogue::<Update, InMemStorage<State>, State>()
         .branch(
+            dptree::filter_map(|update: Update| {
+                Some(!update.chat()?.is_private())
+            })
+            .endpoint(handle_public_chat),
+        )
+        .branch(
             Update::filter_message()
                 // edit profile
                 .branch(
@@ -422,6 +428,15 @@ async fn answer(
         return Err(e);
     }
 
+    Ok(())
+}
+
+async fn handle_public_chat(bot: Bot, msg: Message) -> anyhow::Result<()> {
+    bot.send_message(
+        msg.chat.id,
+        "Данный бот работает только в приватном чате!",
+    )
+    .await?;
     Ok(())
 }
 
