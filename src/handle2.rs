@@ -1,4 +1,4 @@
-use std::{mem, sync::Arc};
+use std::{mem, sync::Arc, str::FromStr};
 
 use anyhow::{bail, ensure, Context};
 use db::Database;
@@ -17,10 +17,9 @@ use tracing::instrument;
 use crate::{
     cities::{self, City},
     db,
-    handle::next_state,
     request, text,
     types::{DatingPurpose, Grade, GraduationYear, Subjects},
-    utils, Bot, EditProfile, MyDialogue, State,
+    utils, Bot, EditProfile, MyDialogue, State, datings,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -48,6 +47,47 @@ enum HandleError {
 //         })
 //     }
 // }
+
+macro_rules! make_macros {
+    ($bot:ident, $msg:ident, $state:ident, $chat:ident) => {
+        // Why macros? Because async closures are unstable,
+        // the only difference is "!"
+        macro_rules! upd_print {
+            ($e:expr) => {
+                let e = $e;
+                crate::handle2::print_state(&e, $bot, $chat).await?;
+                *$state = e;
+            };
+        }
+        // NOTE: not removing buttons is considered a bug!
+        macro_rules! remove_buttons {
+            () => {
+                $bot.edit_message_reply_markup($chat.id, $msg.id).await?;
+            };
+        }
+        macro_rules! send {
+            ($e:expr) => {
+                $bot.send_message($chat.id, $e).await?;
+            };
+            ($e:expr, remove) => {
+                $bot.send_message($chat.id, $e)
+                    .reply_markup(KeyboardRemove::new())
+                    .await?;
+            };
+            ($e:expr, markup $k:expr) => {
+                $bot.send_message($chat.id, $e)
+                    .reply_markup(KeyboardMarkup::new($k).resize_keyboard(true))
+                    .await?;
+            };
+            ($e:expr, inline $k:expr) => {
+                $bot.send_message($chat.id, $e)
+                    .reply_markup(InlineKeyboardMarkup::new($k))
+                    .await?;
+            };
+        }
+    };
+}
+pub(crate) use make_macros;
 
 async fn handle_error(
     e: anyhow::Error,
@@ -103,7 +143,7 @@ pub async fn handle_callback(
     Ok(())
 }
 
-async fn print_state(
+pub async fn print_state(
     state: &State,
     bot: &Bot,
     chat: &Chat,
@@ -149,34 +189,7 @@ async fn try_handle_message(
     let chat = &msg.chat;
     let t = msg.text();
 
-    macro_rules! send {
-        ($e:expr) => {
-            bot.send_message(chat.id, $e).await?;
-        };
-        ($e:expr, remove) => {
-            bot.send_message(chat.id, $e)
-                .reply_markup(KeyboardRemove::new())
-                .await?;
-        };
-        ($e:expr, markup $k:expr) => {
-            bot.send_message(chat.id, $e)
-                .reply_markup(KeyboardMarkup::new($k).resize_keyboard(true))
-                .await?;
-        };
-        ($e:expr, inline $k:expr) => {
-            bot.send_message(chat.id, $e)
-                .reply_markup(InlineKeyboardMarkup::new($k))
-                .await?;
-        };
-    }
-
-    macro_rules! upd_print {
-        ($e:expr) => {
-            let e = $e;
-            print_state(&e, bot, chat).await?;
-            *state = e;
-        };
-    }
+    make_macros!(bot, msg, state, chat);
 
     use State::*;
     match state {
@@ -414,61 +427,68 @@ async fn try_handle_callback(
     q: &CallbackQuery,
 ) -> anyhow::Result<()> {
     let chat = &msg.chat;
-    // Why macros? Because async closures are unstable,
-    // the only difference is "!"
-    macro_rules! upd_print {
-        ($e:expr) => {
-            let e = $e;
-            print_state(&e, bot, chat).await?;
-            *state = e;
-        };
-    }
-    // NOTE: not removing buttons is considered a bug!
-    macro_rules! remove_buttons {
-        () => {
-            bot.edit_message_reply_markup(chat.id, msg.id).await?;
-        };
-    }
-    macro_rules! send {
-        ($e:expr) => {
-            bot.send_message(chat.id, $e).await?;
-        };
-        ($e:expr, remove) => {
-            bot.send_message(chat.id, $e)
-                .reply_markup(KeyboardRemove::new())
-                .await?;
-        };
-        ($e:expr, markup $k:expr) => {
-            bot.send_message(chat.id, $e)
-                .reply_markup(KeyboardMarkup::new($k).resize_keyboard(true))
-                .await?;
-        };
-        ($e:expr, inline $k:expr) => {
-            bot.send_message(chat.id, $e)
-                .reply_markup(InlineKeyboardMarkup::new($k))
-                .await?;
-        };
-    }
+    make_macros!(bot, msg, state, chat);
 
     let mut chars = data.chars();
     let (code, data) = chars
         .next()
         .map(|c| (c, chars.as_str()))
         .context("invalid callback data")?;
+    let code = Code::parse(code)?;
 
     use State::*;
 
-    if matches!(code, '👎' | '💌' | '👍' | '💔' | '❤') && *state != Start
+    #[derive(PartialEq, Eq)]
+    enum Code {
+        SetSubjects,
+        SetSubjectsFilter,
+        SetDatingPurpose,
+        Edit,
+        Rate(RateCode),
+        CreateProfile,
+        FindPartner,
+    }
+
+    impl Code {
+        fn parse(c: char) -> anyhow::Result<Self> {
+            Ok(match c {
+                's' => Self::SetSubjects,
+                'd' => Self::SetSubjectsFilter,
+                'p' => Self::SetDatingPurpose,
+                'e' => Self::Edit,
+                '✍' => Self::CreateProfile,
+                '🚀' => Self::FindPartner,
+                '👎' => Self::Rate(RateCode::Dislike),
+                '💌' => Self::Rate(RateCode::SendLike),
+                '👍' => Self::Rate(RateCode::Like),
+                '💔' => Self::Rate(RateCode::NotHeart),
+                '❤' => Self::Rate(RateCode::Heart),
+                _ => bail!("unknown code"),
+            })
+        }
+    }
+
+    #[derive(PartialEq, Eq)]
+    enum RateCode {
+        Dislike,
+        SendLike,
+        Like,
+        NotHeart,
+        Heart,
+    }
+
+    if matches!(code, Code::Rate(_)) && *state != Start
     {
         bot.answer_callback_query(&q.id)
             .text("Сначала выйдите из режима редактирования!")
             .show_alert(true)
             .await?;
+        return Ok(());
     }
 
     match state {
         SetSubjects(p) => {
-            ensure!(code == 's', HandleError::WrongCode);
+            ensure!(code == Code::SetSubjects, HandleError::WrongCode);
 
             // FIXME: store Subjects in EditProfile
             let subjects = match p.subjects {
@@ -506,7 +526,7 @@ async fn try_handle_callback(
             }
         }
         SetSubjectsFilter(p) => {
-            ensure!(code == 'd', HandleError::WrongCode);
+            ensure!(code == Code::SetSubjectsFilter, HandleError::WrongCode);
 
             // FIXME: store Subjects in EditProfile
             let filter = match p.subjects_filter {
@@ -551,7 +571,7 @@ async fn try_handle_callback(
             }
         }
         SetDatingPurpose(p) => {
-            ensure!(code == 'p', HandleError::WrongCode);
+            ensure!(code == Code::SetDatingPurpose, HandleError::WrongCode);
 
             // FIXME: store DatingPurpose in EditProfile
             let purpose = match p.dating_purpose {
@@ -592,7 +612,7 @@ async fn try_handle_callback(
             }
         }
         Edit => {
-            ensure!(code == 'e', HandleError::WrongCode);
+            ensure!(code == Code::Edit, HandleError::WrongCode);
             // TODO: strum on State?
             // FIXME: check if user exists
             let user =
@@ -613,11 +633,11 @@ async fn try_handle_callback(
         }
         Start => {
             match code {
-                '👎' | '💌' | '👍' | '💔' | '❤' => {
+                Code::Rate(c) => {
                     let id = data.parse()?;
                     let dating = db.get_dating(id).await?;
-                    match code {
-                        '👎' => {
+                    match c {
+                        RateCode::Dislike => {
                             remove_buttons!();
                             ensure!(
                                 dating.initiator_reaction.is_none(),
@@ -631,7 +651,7 @@ async fn try_handle_callback(
                             )
                             .await?;
                         }
-                        '💌' => {
+                        RateCode::SendLike => {
                             remove_buttons!();
                             ensure!(
                                 dating.initiator_reaction.is_none(),
@@ -639,7 +659,7 @@ async fn try_handle_callback(
                             );
                             upd_print!(State::LikeMessage { dating });
                         }
-                        '👍' => {
+                        RateCode::Like => {
                             remove_buttons!();
                             ensure!(
                                 dating.initiator_reaction.is_none(),
@@ -655,7 +675,7 @@ async fn try_handle_callback(
                             .await?;
                             crate::datings::send_like(db, bot, &dating, None).await?;
                         }
-                        '💔' => {
+                        RateCode::NotHeart => {
                             remove_buttons!();
                             ensure!(
                                 dating.partner_reaction.is_none(),
@@ -663,7 +683,7 @@ async fn try_handle_callback(
                             );
                             db.set_dating_partner_reaction(id, false).await?;
                         }
-                        '❤' => {
+                        RateCode::Heart => {
                             ensure!(
                                 dating.partner_reaction.is_none(),
                                 "partner abuses likes"
@@ -692,46 +712,20 @@ async fn try_handle_callback(
                                     "error editing mutual like partner's message",
                                 )?;
                         }
-                        _ => bail!(HandleError::WrongCode)
                     }
                 }
                 // Start profile creation
-                '✍' => {
-                    remove_buttons!();
-                    if !utils::check_user_subscribed_channel(bot, msg.chat.id.0)
-                        .await?
-                    {
-                        send!(
-                            text::SUBSCRIBE_TEXT,
-                            inline[[InlineKeyboardButton::callback(
-                                "Я подписался на канал",
-                                "✍",
-                            )]]
-                        );
-                        return Ok(());
-                    };
-
-                    if utils::user_url(bot, msg.chat.id.0).await?.is_none() {
-                        send!(
-                            text::PLEASE_ALLOW_FORWARDING,
-                            inline[[InlineKeyboardButton::callback(
-                                "Я сделал юзернейм",
-                                "✍",
-                            )]]
-                        );
-                    } else {
-                        send!(text::PROFILE_CREATION_STARTED);
-                        let profile = EditProfile::new(msg.chat.id.0);
-                        upd_print!(SetName(profile));
-                    }
+                Code::CreateProfile => {
+                    crate::start_profile_creation(state, msg, bot).await?;
                 }
                 // Find partner
-                '🚀' => {
+                Code::FindPartner => {
                     remove_buttons!();
+                    // TODO: refactor this
                     crate::datings::send_recommendation(bot, db, msg.chat.id)
                         .await?;
                 }
-                _ => bail!(HandleError::WrongCode),
+                _ => bail!("unknown code"),
             }
         }
         // explicit ignore

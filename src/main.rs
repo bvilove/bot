@@ -31,7 +31,7 @@ use tracing_subscriber::prelude::*;
 mod cities;
 mod datings;
 mod db;
-mod handle;
+// mod handle;
 mod handle2;
 mod request;
 mod text;
@@ -256,40 +256,71 @@ enum Command {
 }
 
 pub async fn start_profile_creation(
-    dialogue: &MyDialogue,
+    state: &mut State,
     msg: &Message,
     bot: &Bot,
 ) -> anyhow::Result<()> {
-    if !utils::check_user_subscribed_channel(bot, msg.chat.id.0).await? {
-        let keyboard = vec![vec![InlineKeyboardButton::callback(
-            "Я подписался на канал",
-            "✍",
-        )]];
-        let keyboard_markup = InlineKeyboardMarkup::new(keyboard);
-        bot.send_message(
-            msg.chat.id,
-            "Пожалуйста, подпишитесь на наш канал https://t.me/bvilove",
-        )
-        .reply_markup(keyboard_markup)
-        .await?;
+    let chat = &msg.chat;
+    handle2::make_macros!(bot, msg, state, chat);
+
+    // if !utils::check_user_subscribed_channel(bot, msg.chat.id.0).await? {
+    //     let keyboard = vec![vec![InlineKeyboardButton::callback(
+    //         "Я подписался на канал",
+    //         "✍",
+    //     )]];
+    //     let keyboard_markup = InlineKeyboardMarkup::new(keyboard);
+    //     bot.send_message(
+    //         msg.chat.id,
+    //         "Пожалуйста, подпишитесь на наш канал https://t.me/bvilove",
+    //     )
+    //     .reply_markup(keyboard_markup)
+    //     .await?;
+    //     return Ok(());
+    // };
+
+    // if utils::user_url(bot, msg.chat.id.0).await?.is_none() {
+    //     let keyboard = vec![vec![InlineKeyboardButton::callback(
+    //         "Я сделал юзернейм",
+    //         "✍",
+    //     )]];
+    //     let keyboard_markup = InlineKeyboardMarkup::new(keyboard);
+    //     bot.send_message(msg.chat.id, text::PLEASE_ALLOW_FORWARDING)
+    //         .reply_markup(keyboard_markup)
+    //         .await?;
+    // } else {
+    //     bot.send_message(msg.chat.id, text::PROFILE_CREATION_STARTED).await?;
+    //     let profile = EditProfile::new(msg.chat.id.0);
+    //     let state = State::SetName(profile.clone());
+    //     handle::print_current_state(&state, None, bot, &msg.chat).await?;
+    //     dialogue.update(state).await?;
+    // }
+
+    remove_buttons!();
+    if !utils::check_user_subscribed_channel(bot, msg.chat.id.0)
+        .await?
+    {
+        send!(
+            text::SUBSCRIBE_TEXT,
+            inline[[InlineKeyboardButton::callback(
+                "Я подписался на канал",
+                "✍",
+            )]]
+        );
         return Ok(());
     };
 
     if utils::user_url(bot, msg.chat.id.0).await?.is_none() {
-        let keyboard = vec![vec![InlineKeyboardButton::callback(
-            "Я сделал юзернейм",
-            "✍",
-        )]];
-        let keyboard_markup = InlineKeyboardMarkup::new(keyboard);
-        bot.send_message(msg.chat.id, text::PLEASE_ALLOW_FORWARDING)
-            .reply_markup(keyboard_markup)
-            .await?;
+        send!(
+            text::PLEASE_ALLOW_FORWARDING,
+            inline[[InlineKeyboardButton::callback(
+                "Я сделал юзернейм",
+                "✍",
+            )]]
+        );
     } else {
-        bot.send_message(msg.chat.id, text::PROFILE_CREATION_STARTED).await?;
+        send!(text::PROFILE_CREATION_STARTED);
         let profile = EditProfile::new(msg.chat.id.0);
-        let state = State::SetName(profile.clone());
-        handle::print_current_state(&state, None, bot, &msg.chat).await?;
-        dialogue.update(state).await?;
+        upd_print!(State::SetName(profile));
     }
 
     Ok(())
@@ -300,6 +331,7 @@ async fn answer(
     db: Arc<Database>,
     bot: Bot,
     dialogue: MyDialogue,
+    mut state: State,
     msg: Message,
     cmd: Command,
 ) -> anyhow::Result<()> {
@@ -307,12 +339,14 @@ async fn answer(
         db: Arc<Database>,
         bot: Bot,
         dialogue: MyDialogue,
+        mut state: State,
         msg: Message,
         cmd: Command,
     ) -> anyhow::Result<()> {
         match cmd {
             Command::Create => {
-                start_profile_creation(&dialogue, &msg, &bot).await?;
+                start_profile_creation(&mut state, &msg, &bot).await?;
+                dialogue.update(state).await?;
             }
             Command::Edit => {
                 if db.get_user(msg.chat.id.0).await?.is_none() {
@@ -395,7 +429,7 @@ async fn answer(
         Ok(())
     }
     // FIXME: remove this
-    if let Err(e) = inner(db, bot.clone(), dialogue, msg.clone(), cmd).await {
+    if let Err(e) = inner(db, bot.clone(), dialogue, state, msg.clone(), cmd).await {
         bot.send_message(
             msg.chat.id,
             format!("АаААА, ошибка стоп 000000: {e}"),
