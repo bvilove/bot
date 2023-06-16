@@ -53,7 +53,7 @@ async fn send_ready_to_datings(bot: &Bot, id: i64) -> anyhow::Result<()> {
 
 pub async fn send_recommendation(
     bot: &Bot,
-    db: &Arc<Database>,
+    db: &Database,
     chat: ChatId,
 ) -> anyhow::Result<()> {
     if !crate::utils::check_user_subscribed_channel(bot, chat.0).await? {
@@ -159,7 +159,7 @@ pub async fn send_recommendation(
 }
 
 pub async fn send_like(
-    db: &Arc<Database>,
+    db: &Database,
     bot: &Bot,
     dating: &entities::datings::Model,
     msg: Option<String>,
@@ -238,7 +238,7 @@ pub async fn send_like(
 
 pub async fn mutual_like(
     bot: &Bot,
-    db: &Arc<Database>,
+    db: &Database,
     dating: &datings::Model,
 ) -> anyhow::Result<()> {
     let partner = db
@@ -319,7 +319,7 @@ pub async fn request_like_msg(bot: &Bot, chat: &Chat) -> anyhow::Result<()> {
 }
 
 pub async fn handle_like_msg(
-    db: Arc<Database>,
+    db: &Database,
     dialogue: MyDialogue,
     bot: Bot,
     msg: Message,

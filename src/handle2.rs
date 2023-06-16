@@ -19,22 +19,24 @@ use crate::{
     db,
     handle::next_state,
     request, text,
-    types::{Grade, GraduationYear},
+    types::{DatingPurpose, Grade, GraduationYear, Subjects},
     utils, Bot, EditProfile, MyDialogue, State,
 };
 
 #[derive(thiserror::Error, Debug)]
 enum HandleError {
-    #[error("Отправьте текст")]
+    #[error("отправьте текст")]
     NeedText,
-    #[error("Отправьте текст")]
+    #[error("неправильный текст")]
     WrongText,
-    #[error("Неправильная длина сообщения")]
+    #[error("неправильная длина сообщения")]
     Length,
-    #[error("Попробуйте ещё раз")]
+    #[error("попробуйте ещё раз")]
     Retry,
-    #[error("Ignore an error")]
+    #[error("ignore an error")]
     Ignore,
+    #[error("wrong callback code")]
+    WrongCode,
 }
 
 // impl State {
@@ -55,11 +57,12 @@ async fn handle_error(
 ) -> anyhow::Result<()> {
     use HandleError::*;
     match e.downcast_ref::<HandleError>() {
-        Some(e) => match e {
+        Some(h) => match h {
             NeedText | WrongText | Length | Retry => {
                 print_state(state, bot, chat).await?;
             }
             Ignore => {}
+            WrongCode => return Err(e),
         },
         None => return Err(e),
     }
@@ -67,8 +70,8 @@ async fn handle_error(
 }
 
 #[instrument(level = "debug", skip(db, bot))]
-async fn handle_message(
-    db: Database,
+pub async fn handle_message(
+    db: Arc<Database>,
     bot: Bot,
     dialogue: MyDialogue,
     mut state: State,
@@ -82,19 +85,19 @@ async fn handle_message(
 }
 
 #[instrument(level = "debug", skip(db, bot))]
-async fn handle_callback(
-    db: Database,
+pub async fn handle_callback(
+    db: Arc<Database>,
     bot: Bot,
     dialogue: MyDialogue,
     mut state: State,
     q: CallbackQuery,
 ) -> anyhow::Result<()> {
-    let chat = q.message.context("callback message is None")?.chat;
-    let data = q.data.context("callback data is None")?;
+    let msg = q.message.as_ref().context("callback message is None")?;
+    let data = q.data.as_deref().context("callback data is None")?;
     if let Err(e) =
-        try_handle_callback(&db, &bot, &mut state, &chat, &data).await
+        try_handle_callback(&db, &bot, &mut state, msg, data, &q).await
     {
-        handle_error(e, &bot, &state, &chat).await?;
+        handle_error(e, &bot, &state, &msg.chat).await?;
     }
     dialogue.update(state).await?;
     Ok(())
@@ -174,12 +177,6 @@ async fn try_handle_message(
             *state = e;
         };
     }
-
-    // send!(id, "text", markup [[KeyboardButton::new("button")]]);
-    // enum Next {
-    //     Retry,
-    //     Switch,
-    // }
 
     use State::*;
     match state {
@@ -312,7 +309,6 @@ async fn try_handle_message(
         }
         SetAbout(p) => {
             let t = t.ok_or(HandleError::NeedText)?;
-            // TODO: skip button?
             ensure!(
                 (1..=1024).contains(&t.chars().count()),
                 HandleError::Length
@@ -338,6 +334,7 @@ async fn try_handle_message(
             }
             _ => {
                 // TODO: change type of photos_count to Option<u8>
+                // TODO: reset photos button
                 if p.photos_count == 0 {
                     db.clean_images(msg.chat.id.0).await?;
                 } else if p.photos_count >= 10 {
@@ -359,6 +356,16 @@ async fn try_handle_message(
                 } else {
                     bail!(HandleError::WrongText);
                 };
+
+                p.photos_count += 1;
+
+                send!(
+                    format!(
+                        "Добавлено {}/10 фото/видео. Добавить ещё?",
+                        p.photos_count
+                    ),
+                    markup[[KeyboardButton::new("Сохранить")]]
+                );
             }
         },
         // TODO: confirm profile change State
@@ -369,13 +376,31 @@ async fn try_handle_message(
             )
             .await?;
         }
+        LikeMessage { dating } => {
+            let t = t.ok_or(HandleError::NeedText)?;
+
+            let msg_to_send = if t == "Отмена" {
+                db.set_dating_initiator_reaction(dating.id, false).await?;
+                "Отправка лайка отменена"
+            } else {
+                db.set_dating_initiator_reaction(dating.id, true).await?;
+                crate::datings::send_like(db, bot, dating, Some(t.to_owned()))
+                    .await?;
+                "Лайк отправлен!"
+            };
+
+            send!(msg_to_send, remove);
+            crate::datings::send_recommendation(
+                bot,
+                db,
+                ChatId(dating.initiator_id),
+            )
+            .await?;
+            upd_print!(Start);
+        }
 
         // explicit ignore (for now)
-        SetSubjects(_)
-        | SetSubjectsFilter(_)
-        | SetDatingPurpose(_)
-        | LikeMessage { .. }
-        | Edit => {}
+        SetSubjects(_) | SetSubjectsFilter(_) | SetDatingPurpose(_) | Edit => {}
     }
     Ok(())
 }
@@ -384,10 +409,12 @@ async fn try_handle_callback(
     db: &Database,
     bot: &Bot,
     state: &mut State,
-    chat: &Chat,
+    msg: &Message,
     data: &str,
+    q: &CallbackQuery,
 ) -> anyhow::Result<()> {
-    // Why macro? Because async closures are unstable,
+    let chat = &msg.chat;
+    // Why macros? Because async closures are unstable,
     // the only difference is "!"
     macro_rules! upd_print {
         ($e:expr) => {
@@ -396,40 +423,327 @@ async fn try_handle_callback(
             *state = e;
         };
     }
+    // NOTE: not removing buttons is considered a bug!
+    macro_rules! remove_buttons {
+        () => {
+            bot.edit_message_reply_markup(chat.id, msg.id).await?;
+        };
+    }
+    macro_rules! send {
+        ($e:expr) => {
+            bot.send_message(chat.id, $e).await?;
+        };
+        ($e:expr, remove) => {
+            bot.send_message(chat.id, $e)
+                .reply_markup(KeyboardRemove::new())
+                .await?;
+        };
+        ($e:expr, markup $k:expr) => {
+            bot.send_message(chat.id, $e)
+                .reply_markup(KeyboardMarkup::new($k).resize_keyboard(true))
+                .await?;
+        };
+        ($e:expr, inline $k:expr) => {
+            bot.send_message(chat.id, $e)
+                .reply_markup(InlineKeyboardMarkup::new($k))
+                .await?;
+        };
+    }
 
-    // TODO: everything
+    let mut chars = data.chars();
+    let (code, data) = chars
+        .next()
+        .map(|c| (c, chars.as_str()))
+        .context("invalid callback data")?;
 
     use State::*;
+
+    if matches!(code, '👎' | '💌' | '👍' | '💔' | '❤') && *state != Start
+    {
+        bot.answer_callback_query(&q.id)
+            .text("Сначала выйдите из режима редактирования!")
+            .show_alert(true)
+            .await?;
+    }
+
     match state {
         SetSubjects(p) => {
-            // upd_print!(if p.create_new {
-            //     SetSubjectsFilter(mem::take(p))
-            // } else {
-            //     Start
-            // });
-            upd_print!(SetSubjectsFilter(mem::take(p)));
+            ensure!(code == 's', HandleError::WrongCode);
+
+            // FIXME: store Subjects in EditProfile
+            let subjects = match p.subjects {
+                Some(s) => Subjects::from_bits(s)
+                    .context("subjects must be created")?,
+                None => Subjects::empty(),
+            };
+
+            if data == "continue" {
+                remove_buttons!();
+
+                let subjects_str = if subjects.is_empty() {
+                    "Вы ничего не ботаете.".to_owned()
+                } else {
+                    format!("Предметы, которые вы ботаете: {subjects}.",)
+                };
+                bot.edit_message_text(msg.chat.id, msg.id, subjects_str)
+                    .await?;
+
+                p.subjects = Some(subjects.bits());
+                upd_print!(SetSubjectsFilter(mem::take(p)));
+            } else {
+                let subjects = subjects
+                    ^ Subjects::from_bits(data.parse()?)
+                        .context("subjects error")?;
+
+                bot.edit_message_reply_markup(msg.chat.id, msg.id)
+                    .reply_markup(utils::make_subjects_keyboard(
+                        subjects,
+                        utils::SubjectsKeyboardType::User,
+                    ))
+                    .await?;
+
+                p.subjects = Some(subjects.bits());
+            }
         }
         SetSubjectsFilter(p) => {
-            upd_print!(if p.create_new {
-                SetDatingPurpose(mem::take(p))
+            ensure!(code == 'd', HandleError::WrongCode);
+
+            // FIXME: store Subjects in EditProfile
+            let filter = match p.subjects_filter {
+                Some(s) => Subjects::from_bits(s)
+                    .context("subjects must be created")?,
+                None => Subjects::empty(),
+            };
+
+            if data == "continue" {
+                remove_buttons!();
+
+                let subjects_filter_str = if filter.is_empty() {
+                    "Не важно, что ботает другой человек.".to_owned()
+                } else {
+                    format!(
+                        "Предметы, хотя бы один из которых должен ботать тот, \
+                         кого вы ищете: {filter}.",
+                    )
+                };
+                bot.edit_message_text(msg.chat.id, msg.id, subjects_filter_str)
+                    .await?;
+
+                p.subjects_filter = Some(filter.bits());
+                upd_print!(if p.create_new {
+                    SetDatingPurpose(mem::take(p))
+                } else {
+                    Start
+                });
             } else {
-                Start
-            });
+                let subjects_filter = filter
+                    ^ Subjects::from_bits(data.parse()?)
+                        .context("subjects error")?;
+
+                bot.edit_message_reply_markup(msg.chat.id, msg.id)
+                    .reply_markup(utils::make_subjects_keyboard(
+                        subjects_filter,
+                        utils::SubjectsKeyboardType::Partner,
+                    ))
+                    .await?;
+
+                p.subjects_filter = Some(subjects_filter.bits());
+            }
         }
         SetDatingPurpose(p) => {
-            upd_print!(if p.create_new {
-                SetCity(mem::take(p))
-            } else {
-                Start
-            });
-        }
-        LikeMessage { dating } => {}
-        Edit => {}
+            ensure!(code == 'p', HandleError::WrongCode);
 
+            // FIXME: store DatingPurpose in EditProfile
+            let purpose = match p.dating_purpose {
+                Some(s) => DatingPurpose::try_from(s)?,
+                None => DatingPurpose::empty(),
+            };
+
+            if data == "continue" {
+                ensure!(
+                    !purpose.is_empty(),
+                    "there must be at least 1 purpose"
+                );
+                remove_buttons!();
+
+                bot.edit_message_text(
+                    msg.chat.id,
+                    msg.id,
+                    format!("Вас интересует: {purpose}.",),
+                )
+                .await?;
+
+                p.dating_purpose = Some(purpose.bits());
+                upd_print!(if p.create_new {
+                    SetCity(mem::take(p))
+                } else {
+                    Start
+                });
+            } else {
+                let purpose = purpose
+                    ^ DatingPurpose::from_bits(data.parse()?)
+                        .context("purpose error")?;
+
+                bot.edit_message_reply_markup(msg.chat.id, msg.id)
+                    .reply_markup(utils::make_dating_purpose_keyboard(purpose))
+                    .await?;
+
+                p.dating_purpose = Some(purpose.bits());
+            }
+        }
+        Edit => {
+            ensure!(code == 'e', HandleError::WrongCode);
+            // TODO: strum on State?
+            // FIXME: check if user exists
+            let user =
+                db.get_user(msg.chat.id.0).await?.context("user not found")?;
+            let p = EditProfile::from_model(user); // FIXME: why?
+
+            remove_buttons!();
+            let state = match data {
+                "Имя" => SetName(p),
+                "Предметы" => SetSubjects(p),
+                "О себе" => SetAbout(p),
+                "Город" => SetCity(p),
+                "Фото" => SetPhotos(p),
+                "Отмена" => Start,
+                _ => bail!("unknown edit data"),
+            };
+            upd_print!(state);
+        }
+        Start => {
+            match code {
+                '👎' | '💌' | '👍' | '💔' | '❤' => {
+                    let id = data.parse()?;
+                    let dating = db.get_dating(id).await?;
+                    match code {
+                        '👎' => {
+                            remove_buttons!();
+                            ensure!(
+                                dating.initiator_reaction.is_none(),
+                                "user abuses dislikes"
+                            );
+                            db.set_dating_initiator_reaction(id, false).await?;
+                            crate::datings::send_recommendation(
+                                bot,
+                                db,
+                                ChatId(dating.initiator_id),
+                            )
+                            .await?;
+                        }
+                        '💌' => {
+                            remove_buttons!();
+                            ensure!(
+                                dating.initiator_reaction.is_none(),
+                                "user abuses msglikes"
+                            );
+                            upd_print!(State::LikeMessage { dating });
+                        }
+                        '👍' => {
+                            remove_buttons!();
+                            ensure!(
+                                dating.initiator_reaction.is_none(),
+                                "user abuses likes"
+                            );
+        
+                            db.set_dating_initiator_reaction(id, true).await?;
+                            crate::datings::send_recommendation(
+                                bot,
+                                db,
+                                ChatId(dating.initiator_id),
+                            )
+                            .await?;
+                            crate::datings::send_like(db, bot, &dating, None).await?;
+                        }
+                        '💔' => {
+                            remove_buttons!();
+                            ensure!(
+                                dating.partner_reaction.is_none(),
+                                "partner abuses dislikes"
+                            );
+                            db.set_dating_partner_reaction(id, false).await?;
+                        }
+                        '❤' => {
+                            ensure!(
+                                dating.partner_reaction.is_none(),
+                                "partner abuses likes"
+                            );
+        
+                            let initiator = db
+                                .get_user(dating.initiator_id)
+                                .await?
+                                .context("dating initiator not found")?;
+        
+                            let markup = InlineKeyboardMarkup::new([[
+                                InlineKeyboardButton::url(
+                                    "Открыть чат",
+                                    crate::utils::user_url(bot, initiator.id)
+                                        .await?
+                                        .context("can't get url")?,
+                                ),
+                            ]]);
+        
+                            crate::datings::mutual_like(bot, db, &dating).await?;
+                            // TODO: check if error works
+                            bot.edit_message_reply_markup(msg.chat.id, msg.id)
+                                .reply_markup(markup)
+                                .await
+                                .context(
+                                    "error editing mutual like partner's message",
+                                )?;
+                        }
+                        _ => bail!(HandleError::WrongCode)
+                    }
+                }
+                // Start profile creation
+                '✍' => {
+                    remove_buttons!();
+                    if !utils::check_user_subscribed_channel(bot, msg.chat.id.0)
+                        .await?
+                    {
+                        send!(
+                            text::SUBSCRIBE_TEXT,
+                            inline[[InlineKeyboardButton::callback(
+                                "Я подписался на канал",
+                                "✍",
+                            )]]
+                        );
+                        return Ok(());
+                    };
+
+                    if utils::user_url(bot, msg.chat.id.0).await?.is_none() {
+                        send!(
+                            text::PLEASE_ALLOW_FORWARDING,
+                            inline[[InlineKeyboardButton::callback(
+                                "Я сделал юзернейм",
+                                "✍",
+                            )]]
+                        );
+                    } else {
+                        send!(text::PROFILE_CREATION_STARTED);
+                        let profile = EditProfile::new(msg.chat.id.0);
+                        upd_print!(SetName(profile));
+                    }
+                }
+                // Find partner
+                '🚀' => {
+                    remove_buttons!();
+                    crate::datings::send_recommendation(bot, db, msg.chat.id)
+                        .await?;
+                }
+                _ => bail!(HandleError::WrongCode),
+            }
+        }
         // explicit ignore
-        Start | SetName(_) | SetGender(_) | SetGenderFilter(_)
-        | SetGraduationYear(_) | SetCity(_) | SetLocationFilter(_)
-        | SetAbout(_) | SetPhotos(_) => {}
+        SetName(_)
+        | SetGender(_)
+        | SetGenderFilter(_)
+        | SetGraduationYear(_)
+        | SetCity(_)
+        | SetLocationFilter(_)
+        | SetAbout(_)
+        | SetPhotos(_)
+        | LikeMessage { .. } => {}
     }
 
     Ok(())

@@ -358,10 +358,10 @@ pub struct UserSubjects(Subjects);
 
 impl Display for UserSubjects {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.0.bits() != 0 {
-            f.write_fmt(format_args!("Ботает: {}", self.0))?;
-        } else {
+        if self.0.bits() == 0 {
             f.write_str("Ничего не ботает.")?;
+        } else {
+            f.write_fmt(format_args!("Ботает: {}", self.0))?;
         }
 
         Ok(())

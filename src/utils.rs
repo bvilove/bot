@@ -44,7 +44,7 @@ pub fn make_subjects_keyboard(
                         SubjectsKeyboardType::Partner => "d",
                         SubjectsKeyboardType::User => "s",
                     },
-                    subject.bits().to_string()
+                    subject.bits()
                 ),
             )
         })
@@ -87,7 +87,7 @@ pub fn make_dating_purpose_keyboard(
                 } else {
                     purpose.name().unwrap().to_owned()
                 },
-                format!("p{}", purpose.bits().to_string()),
+                format!("p{}", purpose.bits()),
             )
         })
         .chunks(3)

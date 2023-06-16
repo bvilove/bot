@@ -1,10 +1,9 @@
 # Roadmap:
 
-- strum on Gender
 - edit messages
-- add edit commands
-- show profile command
 - print "Something went wrong" message on error
+- bot.set_my_commands()
+- add err to tracing::instrument?
 
 # Лицензирование
 

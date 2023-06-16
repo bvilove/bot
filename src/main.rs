@@ -1,5 +1,18 @@
+#![warn(clippy::pedantic, clippy::nursery)]
+#![allow(
+    clippy::wildcard_imports,
+    clippy::too_many_lines,
+    clippy::must_use_candidate,
+    clippy::missing_errors_doc,
+    clippy::trivially_copy_pass_by_ref,
+    clippy::redundant_closure_for_method_calls,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation
+)]
+
 use std::{str::FromStr, sync::Arc};
 
+use anyhow::Context;
 use db::Database;
 use entities::sea_orm_active_enums::{Gender, LocationFilter};
 use sentry_tracing::EventFilter;
@@ -58,9 +71,7 @@ impl ErrorHandler<anyhow::Error> for AppErrorHandler {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    use handle::*;
-
-    std::env::set_var("RUST_BACKTRACE", "1");
+    std::env::set_var("RUST_BACKTRACE", "1"); // FIXME: HACK
 
     tracing_subscriber::registry()
         .with(
@@ -108,60 +119,24 @@ async fn main() -> anyhow::Result<()> {
 
     let handler = dptree::entry()
         .enter_dialogue::<Update, InMemStorage<State>, State>()
-        .branch(
-            dptree::filter_map(|update: Update| {
-                Some(!update.chat()?.is_private())
-            })
-            .endpoint(handle_public_chat),
-        )
+        // .branch(
+        //     dptree::filter_map(|update: Update| {
+        //         Some(!update.chat()?.is_private())
+        //     })
+        //     .endpoint(handle_public_chat),
+        // )
         .branch(
             Update::filter_message()
-                // edit profile
-                .branch(
-                    dptree::case![State::SetName(a)].endpoint(handle_set_name),
-                )
-                .branch(
-                    dptree::case![State::SetGender(a)]
-                        .endpoint(handle_set_gender),
-                )
-                .branch(
-                    dptree::case![State::SetGenderFilter(a)]
-                        .endpoint(handle_set_partner_gender),
-                )
-                .branch(
-                    dptree::case![State::SetGraduationYear(a)]
-                        .endpoint(handle_set_grade),
-                )
-                .branch(
-                    dptree::case![State::SetCity(a)].endpoint(handle_set_city),
-                )
-                .branch(
-                    dptree::case![State::SetLocationFilter(a)]
-                        .endpoint(handle_set_location_filter),
-                )
-                .branch(
-                    dptree::case![State::SetAbout(a)]
-                        .endpoint(handle_set_about),
-                )
-                .branch(
-                    dptree::case![State::SetPhotos(a)]
-                        .endpoint(handle_set_photos),
-                )
-                // others
-                .branch(
-                    dptree::case![State::LikeMessage { dating }]
-                        .endpoint(datings::handle_like_msg),
-                )
                 .branch(
                     dptree::entry()
                         .filter_command::<Command>()
                         .endpoint(answer),
                 )
-                .branch(dptree::endpoint(invalid_command)),
+                .branch(dptree::endpoint(handle2::handle_message)),
         )
         .branch(
             Update::filter_callback_query()
-                .branch(dptree::endpoint(handle::handle_callback)),
+                .branch(dptree::endpoint(handle2::handle_callback)),
         );
 
     let database = db::Database::new().await?;
@@ -181,7 +156,7 @@ async fn main() -> anyhow::Result<()> {
 
 macro_rules! make_profile {
     ($($element:ident: $ty:ty),* $(,)?) => {
-        #[derive(Clone, Default, Debug)]
+        #[derive(Clone, Default, Debug, PartialEq, Eq)]
         pub struct EditProfile {
             id: i64,
             create_new: bool,
@@ -236,7 +211,7 @@ make_profile!(
     location_filter: LocationFilter,
 );
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default, Debug, PartialEq, Eq)]
 pub enum State {
     #[default]
     Start,
@@ -419,10 +394,11 @@ async fn answer(
 
         Ok(())
     }
+    // FIXME: remove this
     if let Err(e) = inner(db, bot.clone(), dialogue, msg.clone(), cmd).await {
         bot.send_message(
             msg.chat.id,
-            format!("АаААА, ошибка стоп 000000: {}", e),
+            format!("АаААА, ошибка стоп 000000: {e}"),
         )
         .await?;
         return Err(e);
@@ -431,14 +407,14 @@ async fn answer(
     Ok(())
 }
 
-async fn handle_public_chat(bot: Bot, msg: Message) -> anyhow::Result<()> {
-    bot.send_message(
-        msg.chat.id,
-        "Данный бот работает только в приватном чате!",
-    )
-    .await?;
-    Ok(())
-}
+// async fn handle_public_chat(bot: Bot, update: Update) -> anyhow::Result<()> {
+//     bot.send_message(
+//         update.chat().context("no chat")?.id,
+//         "Данный бот работает только в приватном чате!",
+//     )
+//     .await?;
+//     Ok(())
+// }
 
 async fn invalid_command(bot: Bot, msg: Message) -> anyhow::Result<()> {
     bot.send_message(msg.chat.id, Command::descriptions().to_string()).await?;

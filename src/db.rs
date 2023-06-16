@@ -290,7 +290,10 @@ impl Database {
                                         Expr::current_timestamp().sub(
                                             Expr::cust("interval '7 days'"),
                                         ),
-                                    ).and(datings::Column::InitiatorReaction.eq(true))),
+                                    ).and(
+                                        datings::Column::InitiatorReaction
+                                            .eq(true)
+                                    )),
                             )
                     })
                     .into(),
