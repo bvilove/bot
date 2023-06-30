@@ -146,9 +146,9 @@ impl From<Grade> for GraduationYear {
         let date = chrono::Local::now();
 
         let year = if date.month() < 9 {
-            date.year() as i16 + (11 - grade.0 as i16)
+            date.year() as i16 + (11 - i16::from(grade.0))
         } else {
-            date.year() as i16 + (11 - grade.0 as i16) + 1
+            date.year() as i16 + (11 - i16::from(grade.0)) + 1
         };
 
         Self(year)
@@ -253,55 +253,61 @@ bitflags! {
 
 impl Subjects {
     /// Name of exactly one subject
-    pub fn name(&self) -> std::result::Result<&'static str, ()> {
+    pub const fn name(&self) -> std::result::Result<&'static str, ()> {
         Ok(match *self {
-            Subjects::Art => "Искусство 🎨",
-            Subjects::Astronomy => "Астрономия 🌌",
-            Subjects::Biology => "Биология 🔬",
-            Subjects::Chemistry => "Химия 🧪",
-            Subjects::Chinese => "Китайский 🇨🇳",
-            Subjects::Ecology => "Экология ♻️",
-            Subjects::Economics => "Экономика 💶",
-            Subjects::English => "Английский 🇬🇧",
-            Subjects::French => "Французский 🇫🇷",
-            Subjects::Geography => "География 🌎",
-            Subjects::German => "Немецкий 🇩🇪",
-            Subjects::History => "История 📰",
-            Subjects::Informatics => "Информатика 💻",
-            Subjects::Italian => "Итальянский 🇮🇹",
-            Subjects::Law => "Право 👨‍⚖️",
-            Subjects::Literature => "Литература 📖",
-            Subjects::Math => "Математика 📐",
-            Subjects::Physics => "Физика ☢️",
-            Subjects::Russian => "Русский 🇷🇺",
-            Subjects::Safety => "ОБЖ 🪖",
-            Subjects::Social => "Обществознание 👫",
-            Subjects::Spanish => "Испанский 🇪🇸",
-            Subjects::Sport => "Физкультура 🏐",
-            Subjects::Technology => "Технология 🚜",
+            Self::Art => "Искусство 🎨",
+            Self::Astronomy => "Астрономия 🌌",
+            Self::Biology => "Биология 🔬",
+            Self::Chemistry => "Химия 🧪",
+            Self::Chinese => "Китайский 🇨🇳",
+            Self::Ecology => "Экология ♻️",
+            Self::Economics => "Экономика 💶",
+            Self::English => "Английский 🇬🇧",
+            Self::French => "Французский 🇫🇷",
+            Self::Geography => "География 🌎",
+            Self::German => "Немецкий 🇩🇪",
+            Self::History => "История 📰",
+            Self::Informatics => "Информатика 💻",
+            Self::Italian => "Итальянский 🇮🇹",
+            Self::Law => "Право 👨‍⚖️",
+            Self::Literature => "Литература 📖",
+            Self::Math => "Математика 📐",
+            Self::Physics => "Физика ☢️",
+            Self::Russian => "Русский 🇷🇺",
+            Self::Safety => "ОБЖ 🪖",
+            Self::Social => "Обществознание 👫",
+            Self::Spanish => "Испанский 🇪🇸",
+            Self::Sport => "Физкультура 🏐",
+            Self::Technology => "Технология 🚜",
             _ => return Err(()),
         })
     }
 }
 
-impl Display for Subjects {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for (i, name) in Subjects::all()
-            .into_iter()
-            .filter(|s| self.contains(*s))
-            .map(|s| s.name().unwrap())
-            .sorted_unstable_by_key(|n| n.to_lowercase())
-            .enumerate()
-        {
-            if i != 0 {
-                f.write_str(", ")?;
-            }
-            f.write_str(name)?;
-        }
+macro_rules! impl_display_bitflags {
+    ($type:ident) => {
+        impl Display for $type {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                for (i, name) in Self::all()
+                    .into_iter()
+                    .filter(|s| self.contains(*s))
+                    .map(|s| s.name().unwrap())
+                    .sorted_unstable_by_key(|n| n.to_lowercase())
+                    .enumerate()
+                {
+                    if i != 0 {
+                        f.write_str(", ")?;
+                    }
+                    f.write_str(name)?;
+                }
 
-        Ok(())
-    }
+                Ok(())
+            }
+        }
+    };
 }
+
+impl_display_bitflags! {Subjects}
 
 bitflags! {
     #[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Hash)]
@@ -314,39 +320,23 @@ bitflags! {
 
 impl DatingPurpose {
     /// Name of exactly one purpose
-    pub fn name(&self) -> std::result::Result<&'static str, ()> {
+    pub const fn name(&self) -> std::result::Result<&'static str, ()> {
         Ok(match *self {
-            DatingPurpose::Friendship => "Дружба 🧑‍🤝‍🧑",
-            DatingPurpose::Studies => "Учёба 📚",
-            DatingPurpose::Relationship => "Отношения 💕",
+            Self::Friendship => "Дружба 🧑‍🤝‍🧑",
+            Self::Studies => "Учёба 📚",
+            Self::Relationship => "Отношения 💕",
             _ => return Err(()),
         })
     }
 }
 
-impl Display for DatingPurpose {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for (i, name) in DatingPurpose::all()
-            .into_iter()
-            .filter(|p| self.contains(*p))
-            .map(|p| p.name().unwrap())
-            .enumerate()
-        {
-            if i != 0 {
-                f.write_str(", ")?;
-            }
-            f.write_str(name)?;
-        }
-
-        Ok(())
-    }
-}
+impl_display_bitflags! {DatingPurpose}
 
 impl TryFrom<i16> for DatingPurpose {
     type Error = anyhow::Error;
 
     fn try_from(value: i16) -> Result<Self, Self::Error> {
-        let Some(purpose) = DatingPurpose::from_bits(value) else {
+        let Some(purpose) = Self::from_bits(value) else {
             bail!("can't construct purpose from bits")
         };
 

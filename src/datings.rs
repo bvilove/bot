@@ -1,6 +1,4 @@
-use std::sync::Arc;
-
-use anyhow::{bail, Context};
+use anyhow::Context;
 use entities::{datings, sea_orm_active_enums::ImageKind};
 use teloxide::{
     prelude::*,
@@ -14,7 +12,11 @@ use teloxide::{
 use tracing::*;
 
 use crate::{
-    db::Database, text, types::PublicProfile, Bot, EditProfile, MyDialogue,
+    callbacks::{Callback, RateCode},
+    db::Database,
+    text,
+    types::PublicProfile,
+    Bot, EditProfile,
 };
 
 pub async fn send_profile(
@@ -41,8 +43,10 @@ pub async fn send_profile(
 }
 
 async fn send_ready_to_datings(bot: &Bot, id: i64) -> anyhow::Result<()> {
-    let keyboard =
-        vec![vec![InlineKeyboardButton::callback("Смотреть анкеты 🚀", "🚀")]];
+    let keyboard = vec![vec![InlineKeyboardButton::callback(
+        "Смотреть анкеты 🚀",
+        Callback::FindPartner.to_string(),
+    )]];
     let keyboard_markup = InlineKeyboardMarkup::new(keyboard);
 
     bot.send_message(ChatId(id), text::READY_FOR_DATINGS)
@@ -59,7 +63,7 @@ pub async fn send_recommendation(
     if !crate::utils::check_user_subscribed_channel(bot, chat.0).await? {
         let keyboard = vec![vec![InlineKeyboardButton::callback(
             "Я подписался на канал",
-            "🚀",
+            Callback::FindPartner.to_string(),
         )]];
         let keyboard_markup = InlineKeyboardMarkup::new(keyboard);
         bot.send_message(
@@ -74,7 +78,7 @@ pub async fn send_recommendation(
     if crate::utils::user_url(bot, chat.0).await?.is_none() {
         let keyboard = vec![vec![InlineKeyboardButton::callback(
             "Я сделал юзернейм",
-            "🚀",
+            Callback::FindPartner.to_string(),
         )]];
         let keyboard_markup = InlineKeyboardMarkup::new(keyboard);
         bot.send_message(chat, text::PLEASE_ALLOW_FORWARDING)
@@ -83,61 +87,67 @@ pub async fn send_recommendation(
         return Ok(());
     }
 
-    match db.get_partner(chat.0).await? {
-        Some((dating, partner)) => {
-            // Clean buttons of old message with this dating if it exist
-            if let Some(msg) = dating.initiator_msg_id {
-                if let Err(e) = bot
-                    .edit_message_reply_markup(
-                        ChatId(dating.initiator_id),
-                        MessageId(msg),
-                    )
-                    .await
-                {
-                    sentry_anyhow::capture_anyhow(
-                        &anyhow::Error::from(e)
-                            .context("error while editing old message"),
-                    );
-                }
+    if let Some((dating, partner)) = db.get_partner(chat.0).await? {
+        // Clean buttons of old message with this dating if it exist
+        if let Some(msg) = dating.initiator_msg_id {
+            if let Err(e) = bot
+                .edit_message_reply_markup(
+                    ChatId(dating.initiator_id),
+                    MessageId(msg),
+                )
+                .await
+            {
+                sentry_anyhow::capture_anyhow(
+                    &anyhow::Error::from(e)
+                        .context("error while editing old message"),
+                );
             }
-
-            send_user_photos(bot, db, partner.id, chat.0).await?;
-
-            let keyboard = vec![vec![
-                InlineKeyboardButton::callback(
-                    "👎",
-                    format!("👎{}", dating.id),
-                ),
-                InlineKeyboardButton::callback(
-                    "💌",
-                    format!("💌{}", dating.id),
-                ),
-                InlineKeyboardButton::callback(
-                    "👍",
-                    format!("👍{}", dating.id),
-                ),
-            ]];
-            let keyboard_markup = InlineKeyboardMarkup::new(keyboard);
-
-            let partner_profile: PublicProfile = (&partner).try_into()?;
-
-            let sent_msg = bot
-                .send_message(chat, partner_profile.to_string())
-                .reply_markup(keyboard_markup)
-                .await?;
-
-            db.set_dating_initiator_msg(dating.id, sent_msg.id.0).await?;
         }
-        None => {
-            let keyboard = vec![vec![InlineKeyboardButton::callback(
-                "Попробовать ещё раз",
-                "🚀",
-            )]];
-            let keyboard_markup = InlineKeyboardMarkup::new(keyboard);
-            bot.send_message(chat, text::PARTNER_NOT_FOUND)
-                .reply_markup(keyboard_markup)
-                .await?;
-        }
+
+        send_user_photos(bot, db, partner.id, chat.0).await?;
+
+        let keyboard = vec![vec![
+            InlineKeyboardButton::callback(
+                "👎",
+                Callback::Dating {
+                    dating_id: dating.id,
+                    code: RateCode::Dislike,
+                }
+                .to_string(),
+            ),
+            InlineKeyboardButton::callback(
+                "💌",
+                Callback::Dating {
+                    dating_id: dating.id,
+                    code: RateCode::LikeWithMsg,
+                }
+                .to_string(),
+            ),
+            InlineKeyboardButton::callback(
+                "👍",
+                Callback::Dating { dating_id: dating.id, code: RateCode::Like }
+                    .to_string(),
+            ),
+        ]];
+        let keyboard_markup = InlineKeyboardMarkup::new(keyboard);
+
+        let partner_profile: PublicProfile = (&partner).try_into()?;
+
+        let sent_msg = bot
+            .send_message(chat, partner_profile.to_string())
+            .reply_markup(keyboard_markup)
+            .await?;
+
+        db.set_dating_initiator_msg(dating.id, sent_msg.id.0).await?;
+    } else {
+        let keyboard = vec![vec![InlineKeyboardButton::callback(
+            "Попробовать ещё раз",
+            Callback::FindPartner.to_string(),
+        )]];
+        let keyboard_markup = InlineKeyboardMarkup::new(keyboard);
+        bot.send_message(chat, text::PARTNER_NOT_FOUND)
+            .reply_markup(keyboard_markup)
+            .await?;
     }
 
     // if partner_images.is_empty() {
@@ -171,21 +181,21 @@ pub async fn send_like(
 
     let user_profile: PublicProfile = (&user).try_into()?;
 
-    let like_msg = match msg {
-        Some(m) => {
+    let like_msg = msg.map_or_else(
+        || format!("Кому-то понравилась ваша анкета:\n\n{user_profile}"),
+        |m| {
             format!(
-                "Кому то понравилась ваша анкета и он оставил вам \
+                "Кому-то понравилась ваша анкета и он оставил вам \
                  сообщение:\n{m}\n\n{user_profile}"
             )
-        }
-        None => format!("Кому то понравилась ваша анкета:\n\n{user_profile}"),
-    };
+        },
+    );
 
     match send_user_photos(bot, db, dating.initiator_id, dating.partner_id)
         .await
     {
         Err(crate::AppError::Telegram(RequestError::Api(
-            ApiError::BotBlocked,
+            ApiError::BotBlocked | ApiError::UserDeactivated,
         ))) => {
             warn!("bot was blocked");
             db.create_or_update_user(EditProfile {
@@ -205,8 +215,22 @@ pub async fn send_like(
     }
 
     let keyboard = vec![vec![
-        InlineKeyboardButton::callback("💔", format!("💔{}", dating.id)),
-        InlineKeyboardButton::callback("❤", format!("❤{}", dating.id)),
+        InlineKeyboardButton::callback(
+            "💔",
+            Callback::Dating {
+                dating_id: dating.id,
+                code: RateCode::ResponseDislike,
+            }
+            .to_string(),
+        ),
+        InlineKeyboardButton::callback(
+            "❤",
+            Callback::Dating {
+                dating_id: dating.id,
+                code: RateCode::ResponseLike,
+            }
+            .to_string(),
+        ),
     ]];
     let keyboard_markup = InlineKeyboardMarkup::new(keyboard);
 
@@ -215,7 +239,9 @@ pub async fn send_like(
         .reply_markup(keyboard_markup)
         .await
     {
-        Err(RequestError::Api(ApiError::BotBlocked)) => {
+        Err(RequestError::Api(
+            ApiError::BotBlocked | ApiError::UserDeactivated,
+        )) => {
             warn!("bot was blocked");
             db.create_or_update_user(EditProfile {
                 active: Some(false),
@@ -315,38 +341,5 @@ pub async fn request_like_msg(bot: &Bot, chat: &Chat) -> anyhow::Result<()> {
     bot.send_message(chat.id, text::SEND_LIKE)
         .reply_markup(keyboard_markup)
         .await?;
-    Ok(())
-}
-
-pub async fn handle_like_msg(
-    db: &Database,
-    dialogue: MyDialogue,
-    bot: Bot,
-    msg: Message,
-    d: entities::datings::Model,
-) -> anyhow::Result<()> {
-    let Some(text) = msg.text() else {
-        bot.send_message(msg.chat.id, "Лайк может содержать только текст! Для отмены отправьте \"Отмена\".").await?;
-        bail!("message without text")
-    };
-
-    let msg_to_send = if text == "Отмена"
-        || text.chars().next().context("empty string")? == '/'
-    {
-        db.set_dating_initiator_reaction(d.id, false).await?;
-        "Отправка лайка отменена"
-    } else {
-        db.set_dating_initiator_reaction(d.id, true).await?;
-        send_like(&db, &bot, &d, Some(text.to_owned())).await?;
-        "Лайк отправлен!"
-    };
-
-    bot.send_message(msg.chat.id, msg_to_send)
-        .reply_markup(KeyboardRemove::new())
-        .await?;
-
-    dialogue.exit().await?;
-    send_recommendation(&bot, &db, ChatId(d.initiator_id)).await?;
-
     Ok(())
 }

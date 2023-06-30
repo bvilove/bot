@@ -8,6 +8,7 @@ use teloxide::{
 };
 
 use crate::{
+    callbacks::{Callback, UpdateBitflags},
     text,
     types::{DatingPurpose, Subjects},
     Bot,
@@ -18,9 +19,10 @@ pub enum SubjectsKeyboardType {
     Partner,
 }
 
+// TODO: refactor to Trait?
 pub fn make_subjects_keyboard(
     selected: Subjects,
-    tp: SubjectsKeyboardType,
+    tp: &SubjectsKeyboardType,
 ) -> InlineKeyboardMarkup {
     let mut keyboard: Vec<Vec<_>> = Subjects::all()
         .into_iter()
@@ -38,14 +40,17 @@ pub fn make_subjects_keyboard(
                 } else {
                     subject.name().unwrap().to_owned()
                 },
-                format!(
-                    "{}{}",
-                    match tp {
-                        SubjectsKeyboardType::Partner => "d",
-                        SubjectsKeyboardType::User => "s",
-                    },
-                    subject.bits()
-                ),
+                match tp {
+                    SubjectsKeyboardType::Partner => {
+                        Callback::SetSubjectsFilter(UpdateBitflags::Update(
+                            subject,
+                        ))
+                    }
+                    SubjectsKeyboardType::User => {
+                        Callback::SetSubjects(UpdateBitflags::Update(subject))
+                    }
+                }
+                .to_string(),
             )
         })
         .chunks(3)
@@ -60,7 +65,7 @@ pub fn make_subjects_keyboard(
             } else {
                 text::SUBJECTS_CONTINUE
             },
-            "dcontinue",
+            Callback::SetSubjectsFilter(UpdateBitflags::Continue).to_string(),
         ),
         SubjectsKeyboardType::User => (
             if selected.is_empty() {
@@ -68,7 +73,7 @@ pub fn make_subjects_keyboard(
             } else {
                 text::SUBJECTS_CONTINUE
             },
-            "scontinue",
+            Callback::SetSubjects(UpdateBitflags::Continue).to_string(),
         ),
     };
     keyboard.push(vec![InlineKeyboardButton::callback(text, cont)]);

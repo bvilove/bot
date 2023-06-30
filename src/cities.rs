@@ -19,13 +19,12 @@ impl Display for City {
                     subject_by_id(id).context("subject not found").unwrap();
                 let city = city_by_id(id).context("city not found").unwrap();
 
-                if subject != city {
-                    f.write_fmt(format_args!(
-                        "{} ФО, {}, {}",
-                        county, subject, city
-                    ))?
+                if subject == city {
+                    f.write_fmt(format_args!("{county} ФО, {city}"))?;
                 } else {
-                    f.write_fmt(format_args!("{} ФО, {}", county, city))?;
+                    f.write_fmt(format_args!(
+                        "{county} ФО, {subject}, {city}"
+                    ))?;
                 }
             }
             None => f.write_str("Город не указан")?,
@@ -51,7 +50,7 @@ impl FromStr for City {
             .next_back()
             .expect("there must be at least 1 city");
         if jaro_winkler(best_city.1, query) > 0.15 {
-            Ok(City(Some(*best_city.0)))
+            Ok(Self(Some(*best_city.0)))
         } else {
             Err(())
         }

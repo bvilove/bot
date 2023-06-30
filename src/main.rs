@@ -1,6 +1,7 @@
 #![warn(clippy::pedantic, clippy::nursery)]
 #![allow(
     clippy::wildcard_imports,
+    clippy::enum_glob_use,
     clippy::too_many_lines,
     clippy::must_use_candidate,
     clippy::missing_errors_doc,
@@ -12,7 +13,6 @@
 
 use std::{str::FromStr, sync::Arc};
 
-use anyhow::Context;
 use db::Database;
 use entities::sea_orm_active_enums::{Gender, LocationFilter};
 use sentry_tracing::EventFilter;
@@ -28,11 +28,11 @@ use teloxide::{
 use tracing::*;
 use tracing_subscriber::prelude::*;
 
+mod callbacks;
 mod cities;
 mod datings;
 mod db;
-// mod handle;
-mod handle2;
+mod handle;
 mod request;
 mod text;
 mod types;
@@ -132,11 +132,11 @@ async fn main() -> anyhow::Result<()> {
                         .filter_command::<Command>()
                         .endpoint(answer),
                 )
-                .branch(dptree::endpoint(handle2::handle_message)),
+                .branch(dptree::endpoint(handle::handle_message)),
         )
         .branch(
             Update::filter_callback_query()
-                .branch(dptree::endpoint(handle2::handle_callback)),
+                .branch(dptree::endpoint(handle::handle_callback)),
         );
 
     let database = db::Database::new().await?;
@@ -227,8 +227,8 @@ pub enum State {
     SetLocationFilter(EditProfile),
     SetAbout(EditProfile),
     SetPhotos(EditProfile),
-    // others
-    LikeMessage {
+    /// Waiting for the message for the like
+    LikeWithMessage {
         dating: entities::datings::Model,
     },
     Edit,
@@ -261,7 +261,7 @@ pub async fn start_profile_creation(
     bot: &Bot,
 ) -> anyhow::Result<()> {
     let chat = &msg.chat;
-    handle2::make_macros!(bot, msg, state, chat);
+    handle::make_macros!(bot, msg, state, chat);
 
     // if !utils::check_user_subscribed_channel(bot, msg.chat.id.0).await? {
     //     let keyboard = vec![vec![InlineKeyboardButton::callback(
@@ -296,9 +296,7 @@ pub async fn start_profile_creation(
     // }
 
     remove_buttons!();
-    if !utils::check_user_subscribed_channel(bot, msg.chat.id.0)
-        .await?
-    {
+    if !utils::check_user_subscribed_channel(bot, msg.chat.id.0).await? {
         send!(
             text::SUBSCRIBE_TEXT,
             inline[[InlineKeyboardButton::callback(
@@ -312,10 +310,7 @@ pub async fn start_profile_creation(
     if utils::user_url(bot, msg.chat.id.0).await?.is_none() {
         send!(
             text::PLEASE_ALLOW_FORWARDING,
-            inline[[InlineKeyboardButton::callback(
-                "Я сделал юзернейм",
-                "✍",
-            )]]
+            inline[[InlineKeyboardButton::callback("Я сделал юзернейм", "✍",)]]
         );
     } else {
         send!(text::PROFILE_CREATION_STARTED);
@@ -331,7 +326,7 @@ async fn answer(
     db: Arc<Database>,
     bot: Bot,
     dialogue: MyDialogue,
-    mut state: State,
+    state: State,
     msg: Message,
     cmd: Command,
 ) -> anyhow::Result<()> {
@@ -355,7 +350,7 @@ async fn answer(
                     return Ok(());
                 }
 
-                request::request_edit_profile(&bot, &msg.chat).await?;
+                request::edit_profile(&bot, &msg.chat).await?;
                 dialogue.update(State::Edit).await?;
             }
             Command::Help => {
@@ -429,7 +424,9 @@ async fn answer(
         Ok(())
     }
     // FIXME: remove this
-    if let Err(e) = inner(db, bot.clone(), dialogue, state, msg.clone(), cmd).await {
+    if let Err(e) =
+        inner(db, bot.clone(), dialogue, state, msg.clone(), cmd).await
+    {
         bot.send_message(
             msg.chat.id,
             format!("АаААА, ошибка стоп 000000: {e}"),
@@ -438,19 +435,5 @@ async fn answer(
         return Err(e);
     }
 
-    Ok(())
-}
-
-// async fn handle_public_chat(bot: Bot, update: Update) -> anyhow::Result<()> {
-//     bot.send_message(
-//         update.chat().context("no chat")?.id,
-//         "Данный бот работает только в приватном чате!",
-//     )
-//     .await?;
-//     Ok(())
-// }
-
-async fn invalid_command(bot: Bot, msg: Message) -> anyhow::Result<()> {
-    bot.send_message(msg.chat.id, Command::descriptions().to_string()).await?;
     Ok(())
 }
